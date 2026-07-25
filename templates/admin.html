@@ -46,6 +46,7 @@
                     <a href="/admin/review/{{ sub.id }}/reject" class="btn-mini btn-reject">Reject</a>
                   {% endif %}
                 {% endif %}
+                <a href="/admin/review/{{ sub.id }}/delete" class="btn-mini btn-reject" onclick="return confirm('Permanently delete submission #{{ sub.id }}?')">Delete</a>
               </div>
             </td>
           </tr>

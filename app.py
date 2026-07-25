@@ -5,6 +5,7 @@ import datetime
 import subprocess
 import sys
 import zipfile
+import shutil
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 
 try:
@@ -55,7 +56,6 @@ def check_and_update_bot_statuses():
                 exit_code = proc.poll() if proc else 'unknown'
                 update_submission_status(sub_id, 'crashed')
                 
-                # Append crash summary to log file
                 log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
                 try:
                     with open(log_file_path, "a", encoding="utf-8") as f:
@@ -140,6 +140,38 @@ def update_submission_status(sub_id, new_status):
             s["status"] = new_status
             break
     save_json_db(db)
+
+def delete_submission_permanently(sub_id):
+    """ Permanently delete submission record and uploaded files """
+    # 1. Stop process if running
+    stop_bot_process(sub_id)
+
+    # 2. Delete from MongoDB
+    if mongo_db is not None:
+        try:
+            mongo_db.submissions.delete_one({"id": sub_id})
+        except Exception as e:
+            print("MongoDB delete submission error:", e)
+
+    # 3. Delete from db.json
+    db = load_json_db()
+    db["submissions"] = [s for s in db.get("submissions", []) if s["id"] != sub_id]
+    save_json_db(db)
+
+    # 4. Remove upload directory and log file
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    if os.path.exists(sub_dir):
+        try:
+            shutil.rmtree(sub_dir)
+        except Exception as e:
+            print("Error deleting upload dir:", e)
+
+    log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+    if os.path.exists(log_file_path):
+        try:
+            os.remove(log_file_path)
+        except Exception as e:
+            print("Error deleting log file:", e)
 
 def load_json_db():
     if not os.path.exists(DB_FILE):
@@ -416,6 +448,34 @@ def upload():
     flash('Bot project submitted successfully! Under review.', 'success')
     return redirect(url_for('dashboard'))
 
+@app.route('/submission/<sub_id>/delete', methods=['GET', 'POST'])
+def delete_submission_user(sub_id):
+    if 'user' not in session:
+        flash('Please log in first', 'error')
+        return redirect(url_for('login'))
+
+    all_subs = get_all_submissions()
+    sub_owner = None
+    for s in all_subs:
+        if s['id'] == sub_id:
+            sub_owner = s['user']
+            break
+
+    if not sub_owner:
+        flash('Submission not found.', 'error')
+        return redirect(url_for('dashboard'))
+
+    # Only owner or admin can delete
+    if session['user'] == sub_owner or session.get('is_admin'):
+        delete_submission_permanently(sub_id)
+        flash(f'Submission #{sub_id} deleted successfully.', 'success')
+    else:
+        flash('Unauthorized to delete this submission.', 'error')
+
+    if session.get('is_admin'):
+        return redirect(url_for('admin'))
+    return redirect(url_for('dashboard'))
+
 @app.route('/admin')
 def admin():
     if 'user' not in session or not session.get('is_admin'):
@@ -452,6 +512,9 @@ def review_action(sub_id, action):
                 stop_bot_process(sub_id)
                 update_submission_status(sub_id, 'approved')
                 msg = f"Bot #{sub_id} process stopped."
+            elif action == 'delete':
+                delete_submission_permanently(sub_id)
+                msg = f"Submission #{sub_id} permanently deleted."
             updated = True
             break
     
