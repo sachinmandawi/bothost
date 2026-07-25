@@ -4,9 +4,9 @@
 
 {% block content %}
 <h1 class="page-title">Welcome, {{ session.get('user', 'User') }}</h1>
-<p class="page-sub">Deploy your bot directly via GitHub repository URL.</p>
+<p class="page-sub">Deploy your bot directly via GitHub repository URL & manage live execution.</p>
 
-<div class="grid-2">
+<div class="grid-2" style="margin-bottom: 24px;">
   <div class="panel">
     <h2>&gt;_ Deploy a bot</h2>
 
@@ -25,31 +25,63 @@
   </div>
 
   <div class="panel">
-    <h2>&gt;_ Your submissions</h2>
-    {% if submissions %}
-      <ul class="submission-list">
-        {% for sub in submissions %}
-          <li class="submission-item">
-            <div>
-              <span class="mono" style="font-weight: 600;">{{ sub.name }}</span>
-              <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
-              <div style="margin-top: 6px; display: flex; gap: 6px; align-items: center;">
-                {% if sub.status == 'crashed' %}
-                  <button class="btn-mini btn-reject" style="padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">⚠️ View Crash Log</button>
-                {% elif sub.status == 'running' %}
-                  <button class="btn-mini btn-view" style="padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">📄 View Live Logs</button>
-                {% endif %}
-                <a href="/submission/{{ sub.id }}/delete" class="btn-mini btn-reject" style="padding: 3px 8px; font-size: 0.72rem;" onclick="return confirm('Are you sure you want to delete this submission?')">🗑️ Delete</a>
-              </div>
-            </div>
-            <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
-          </li>
-        {% endfor %}
-      </ul>
+    <h2>🔔 Telegram Crash Alerts</h2>
+    <p class="hint" style="margin-bottom: 16px;">Receive instant Telegram notifications whenever your bot crashes or hits errors.</p>
+    
+    {% if user_info and user_info.telegram_chat_id %}
+      <div style="background: rgba(61, 220, 132, 0.08); border: 1px solid var(--accent-dim); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <span style="color: var(--accent); font-family: var(--mono); font-size: 0.85rem; font-weight: 600;">✅ Telegram Connected</span>
+        <span class="tiny" style="color: var(--text); margin-top: 4px;">Chat ID: <code class="mono">{{ user_info.telegram_chat_id }}</code></span>
+      </div>
     {% else %}
-      <p class="empty-state">No submissions yet. Enter your GitHub repo URL to deploy your first bot.</p>
+      <div style="background: rgba(217, 164, 65, 0.08); border: 1px solid rgba(217,164,65,0.35); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <span style="color: var(--warn); font-family: var(--mono); font-size: 0.85rem; font-weight: 600;">⚠️ Not Connected</span>
+        <span class="tiny" style="color: var(--text-dim); margin-top: 4px;">Connect Telegram to receive instant crash notifications.</span>
+      </div>
     {% endif %}
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <a href="https://t.me/{{ bot_username }}?start=connect_{{ session.get('user') }}" target="_blank" class="btn-primary" style="text-align: center; text-decoration: none; display: block; background: #0088cc; color: #fff; margin-top: 0;">
+        ✈️ Connect via Telegram (1-Click)
+      </a>
+
+      <form method="POST" action="/connect_telegram" class="stack-form" style="margin-top: 6px;">
+        <label for="chat_id">OR ENTER TELEGRAM CHAT ID MANUALLY</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="chat_id" name="chat_id" placeholder="e.g. 123456789" value="{{ user_info.telegram_chat_id if user_info else '' }}" style="flex: 1;">
+          <button type="submit" class="btn-ghost" style="padding: 10px 14px; border-color: var(--accent-dim); color: var(--accent);">Save ID</button>
+        </div>
+        <p class="hint" style="font-size: 0.72rem;">Get your ID from Telegram bot @userinfobot</p>
+      </form>
+    </div>
   </div>
+</div>
+
+<div class="panel">
+  <h2>&gt;_ Your submissions</h2>
+  {% if submissions %}
+    <ul class="submission-list">
+      {% for sub in submissions %}
+        <li class="submission-item">
+          <div>
+            <span class="mono" style="font-weight: 600;">{{ sub.name }}</span>
+            <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
+            <div style="margin-top: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+              {% if sub.status == 'crashed' %}
+                <button class="btn-mini btn-reject" style="padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">⚠️ View Crash Log</button>
+              {% elif sub.status == 'running' %}
+                <button class="btn-mini btn-view" style="padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">📄 View Live Logs</button>
+              {% endif %}
+              <a href="/submission/{{ sub.id }}/delete" class="btn-mini btn-reject" style="padding: 3px 8px; font-size: 0.72rem;" onclick="return confirm('Are you sure you want to delete this submission?')">🗑️ Delete</a>
+            </div>
+          </div>
+          <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty-state">No submissions yet. Enter your GitHub repo URL to deploy your first bot.</p>
+  {% endif %}
 </div>
 
 <!-- Modal for User to inspect logs & crash trace -->

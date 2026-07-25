@@ -9,6 +9,8 @@ import shutil
 import stat
 import threading
 import time
+import urllib.request
+import urllib.parse
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 
 try:
@@ -31,6 +33,10 @@ os.makedirs(LOGS_FOLDER, exist_ok=True)
 TOKEN_PARTS = ["ghp_", "9WArQWO0qBS9qAAL", "o9vUxc2Q9DQLxo21G7x2"]
 SYSTEM_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "".join(TOKEN_PARTS))
 
+# Telegram Alert Bot configuration provided by user
+ALERT_BOT_TOKEN = os.getenv("ALERT_BOT_TOKEN", "8712647996:AAG9uj7vEcVSZ2Ukf2noHetU0FMWxcDKSP4")
+ALERT_BOT_USERNAME = "BotHostAlertBot"
+
 # MongoDB Atlas Connection URI provided by user
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://sachinmandawitime_db_user:U8GnBrYwTOXTsa1M@gmailfarmer.d9lf5r2.mongodb.net/?retryWrites=true&w=majority")
 
@@ -49,6 +55,46 @@ if HAS_PYMONGO:
 
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
+
+def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details=""):
+    """ Sends formatted Telegram alert message to user """
+    if not chat_id or not ALERT_BOT_TOKEN:
+        return False
+
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
+    
+    if alert_type == "CRASH":
+        msg_text = (
+            f"⚠️ *[BOTHOST CRASH ALERT]*\n\n"
+            f"🤖 *Bot:* `{sub_name}`\n"
+            f"🆔 *Submission ID:* `#{sub_id}`\n"
+            f"⏱ *Time:* `{now_str}`\n\n"
+            f"❌ *Status:* Bot process terminated unexpectedly.\n"
+            f"📄 *Details:* `{details[:300]}`\n\n"
+            f"👉 [Open Dashboard to Fix](https://bothost-dq6s.onrender.com/dashboard)"
+        )
+    else:
+        msg_text = (
+            f"ℹ️ *[BOTHOST ALERT]*\n\n"
+            f"🤖 *Bot:* `{sub_name}` (#`{sub_id}`)\n"
+            f"⏱ *Time:* `{now_str}`\n"
+            f"📝 `{details}`"
+        )
+
+    try:
+        url = f"https://api.telegram.org/bot{ALERT_BOT_TOKEN}/sendMessage"
+        payload = json.dumps({
+            "chat_id": str(chat_id),
+            "text": msg_text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            return res.status == 200
+    except Exception as e:
+        print(f"Error sending Telegram alert to {chat_id}: {e}")
+        return False
 
 def remove_readonly(func, path, excinfo):
     """ Helper to remove read-only attributes on Windows when deleting .git folders """
@@ -79,8 +125,7 @@ def continuous_bot_keeper_daemon():
                 sub_id = sub.get('id')
                 status = sub.get('status')
                 
-                # Auto-resume any bot marked as 'running', 'approved', or previously active 'crashed' with repo_url
-                if status in ('running', 'approved', 'crashed'):
+                if status in ('running', 'approved'):
                     proc = RUNNING_PROCESSES.get(sub_id)
                     if proc is None or proc.poll() is not None:
                         print(f"[DAEMON] Auto-resuming bot #{sub_id} ({sub.get('name')})...")
@@ -95,8 +140,33 @@ def continuous_bot_keeper_daemon():
         time.sleep(20)
 
 def check_and_update_bot_statuses():
-    """ Monitors background processes """
-    pass
+    """ Monitors background processes and sends crash alerts to users """
+    all_subs = get_all_submissions()
+    for sub in all_subs:
+        sub_id = sub['id']
+        current_status = sub.get('status')
+        proc = RUNNING_PROCESSES.get(sub_id)
+
+        if current_status == 'running':
+            if proc is None or proc.poll() is not None:
+                # Attempt immediate restart
+                success, msg = start_bot_process(sub_id)
+                if success:
+                    continue
+                
+                # If bot process actually crashed and fails restart
+                update_submission_status(sub_id, 'crashed')
+                sub_owner = sub.get('user')
+                owner_data = get_user(sub_owner) if sub_owner else None
+                
+                if owner_data and owner_data.get('telegram_chat_id'):
+                    send_telegram_alert(
+                        chat_id=owner_data['telegram_chat_id'],
+                        sub_name=sub.get('name', 'Telegram Bot'),
+                        sub_id=sub_id,
+                        alert_type="CRASH",
+                        details=f"Process exited with output: {msg[:200]}"
+                    )
 
 def get_user(username):
     """ Fetch user dict from MongoDB or db.json """
@@ -108,6 +178,7 @@ def get_user(username):
                     "username": u["username"],
                     "password": u["password"],
                     "is_admin": u.get("is_admin", False),
+                    "telegram_chat_id": u.get("telegram_chat_id", ""),
                     "created_at": u.get("created_at", "")
                 }
         except Exception as e:
@@ -133,8 +204,24 @@ def create_user(username, password, is_admin=False):
             print("MongoDB create_user error:", e)
 
     db = load_json_db()
-    db["users"][username] = {"password": password, "is_admin": is_admin, "created_at": now_str}
+    db["users"][username] = {"password": password, "is_admin": is_admin, "telegram_chat_id": "", "created_at": now_str}
     save_json_db(db)
+
+def update_user_telegram_chat_id(username, chat_id):
+    """ Save Telegram Chat ID for user """
+    if mongo_db is not None:
+        try:
+            mongo_db.users.update_one(
+                {"username": username},
+                {"$set": {"telegram_chat_id": str(chat_id)}}
+            )
+        except Exception as e:
+            print("MongoDB update_user_telegram_chat_id error:", e)
+
+    db = load_json_db()
+    if username in db.get("users", {}):
+        db["users"][username]["telegram_chat_id"] = str(chat_id)
+        save_json_db(db)
 
 def get_all_submissions():
     """ Get all bot submissions from MongoDB or db.json """
@@ -208,7 +295,7 @@ def load_json_db():
     if not os.path.exists(DB_FILE):
         data = {
             "users": {
-                "sachinmandawi": {"password": "sachinmandawi", "is_admin": True, "created_at": "2026-07-25 13:00:00"}
+                "sachinmandawi": {"password": "sachinmandawi", "is_admin": True, "telegram_chat_id": "", "created_at": "2026-07-25 13:00:00"}
             },
             "submissions": []
         }
@@ -227,6 +314,7 @@ def load_json_db():
                 data["users"]["sachinmandawi"] = {
                     "password": "sachinmandawi",
                     "is_admin": True,
+                    "telegram_chat_id": "",
                     "created_at": "2026-07-25 13:00:00"
                 }
                 save_json_db(data)
@@ -354,6 +442,60 @@ def stop_bot_process(sub_id):
 daemon_thread = threading.Thread(target=continuous_bot_keeper_daemon, daemon=True)
 daemon_thread.start()
 
+# Background Polling Worker for @BotHostAlertBot Deep Linking (/start connect_<username>)
+def telegram_alert_bot_polling():
+    if not ALERT_BOT_TOKEN:
+        return
+    last_update_id = 0
+    while True:
+        try:
+            time.sleep(3)
+            url = f"https://api.telegram.org/bot{ALERT_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as res:
+                data = json.loads(res.read().decode('utf-8'))
+                if data.get("ok"):
+                    for update in data.get("result", []):
+                        last_update_id = max(last_update_id, update.get("update_id", 0))
+                        message = update.get("message", {})
+                        text = message.get("text", "")
+                        chat_id = message.get("chat", {}).get("id")
+
+                        if text and chat_id and text.startswith("/start"):
+                            parts = text.split()
+                            if len(parts) > 1 and parts[1].startswith("connect_"):
+                                username = parts[1].replace("connect_", "").strip()
+                                user_info = get_user(username)
+                                if user_info:
+                                    update_user_telegram_chat_id(username, chat_id)
+                                    send_telegram_alert(
+                                        chat_id=chat_id,
+                                        sub_name="BotHost System",
+                                        sub_id="SYSTEM",
+                                        alert_type="INFO",
+                                        details=f"✅ Account Connected! Welcome `{username}`. You will now receive instant Telegram alerts whenever your bots encounter errors or crashes."
+                                    )
+                                else:
+                                    send_telegram_alert(
+                                        chat_id=chat_id,
+                                        sub_name="BotHost System",
+                                        sub_id="SYSTEM",
+                                        alert_type="INFO",
+                                        details=f"⚠️ Account `{username}` not found on BotHost database."
+                                    )
+                            else:
+                                send_telegram_alert(
+                                    chat_id=chat_id,
+                                    sub_name="BotHost System",
+                                    sub_id="SYSTEM",
+                                    alert_type="INFO",
+                                    details="👋 Welcome to *BotHost Alert Bot*! Click 'Connect Telegram' on your BotHost Dashboard to link your account for instant crash alerts."
+                                )
+        except Exception as e:
+            time.sleep(5)
+
+threading.Thread(target=telegram_alert_bot_polling, daemon=True).start()
+
 # Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')
 @app.route('/health')
@@ -446,10 +588,33 @@ def dashboard():
         flash('Please log in first', 'error')
         return redirect(url_for('login'))
     
+    user_info = get_user(session['user'])
     all_subs = get_all_submissions()
     user_submissions = [s for s in all_subs if s['user'] == session['user']]
     user_submissions.reverse()
-    return render_template('dashboard.html', submissions=user_submissions)
+    return render_template('dashboard.html', submissions=user_submissions, user_info=user_info, bot_username=ALERT_BOT_USERNAME)
+
+@app.route('/connect_telegram', methods=['POST'])
+def connect_telegram():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    chat_id = request.form.get('chat_id', '').strip()
+    if not chat_id:
+        flash('Please enter a valid Telegram Chat ID.', 'error')
+        return redirect(url_for('dashboard'))
+
+    update_user_telegram_chat_id(session['user'], chat_id)
+    send_telegram_alert(
+        chat_id=chat_id,
+        sub_name="BotHost System",
+        sub_id="SYSTEM",
+        alert_type="INFO",
+        details=f"✅ Account Connected! Welcome `{session['user']}`. Telegram alerts configured successfully."
+    )
+
+    flash('Telegram Chat ID connected successfully! Sent test message.', 'success')
+    return redirect(url_for('dashboard'))
 
 @app.route('/upload', methods=['POST'])
 def upload():
