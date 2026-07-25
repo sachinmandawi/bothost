@@ -36,12 +36,14 @@
               </td>
               <td class="mono" style="font-size: 0.78rem;">{{ sub.created_at }}</td>
               <td>
-                <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
-                {% if sub.status == 'running' and sub.uptime_str %}
-                  <span class="status status-running" style="font-size: 0.65rem; margin-top: 4px; display: inline-block;">
-                    ⚡ {{ sub.uptime_str }}
-                  </span>
-                {% endif %}
+                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
+                  <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+                  {% if sub.status == 'running' and sub.uptime_str %}
+                    <span class="status status-running" style="font-size: 0.65rem;">
+                      ⚡ {{ sub.uptime_str }}
+                    </span>
+                  {% endif %}
+                </div>
               </td>
               <td>
                 <div class="actions">
@@ -74,10 +76,10 @@
               <span class="admin-card-id">#{{ sub.id }}</span>
               <span class="admin-card-name">{{ sub.name }}</span>
             </div>
-            <div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
               <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
               {% if sub.status == 'running' and sub.uptime_str %}
-                <span class="status status-running" style="font-size: 0.65rem; margin-top: 4px; display: block;">
+                <span class="status status-running" style="font-size: 0.65rem;">
                   ⚡ {{ sub.uptime_str }}
                 </span>
               {% endif %}
