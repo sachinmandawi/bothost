@@ -162,6 +162,26 @@ def answer_callback_query(callback_query_id, text=""):
     except Exception:
         pass
 
+def edit_telegram_message_text(chat_id, message_id, text, reply_markup=None):
+    """ Dynamically updates Telegram inline message & keyboard buttons in real-time """
+    try:
+        url = f"https://api.telegram.org/bot{ALERT_BOT_TOKEN}/editMessageText"
+        payload_dict = {
+            "chat_id": str(chat_id),
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+        if reply_markup:
+            payload_dict["reply_markup"] = reply_markup
+
+        payload = json.dumps(payload_dict).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"Error editing Telegram message: {e}")
+
 def remove_readonly(func, path, excinfo):
     """ Helper to remove read-only attributes on Windows when deleting .git folders """
     try:
@@ -674,18 +694,16 @@ def stop_bot_process(sub_id):
 daemon_thread = threading.Thread(target=continuous_bot_keeper_daemon, daemon=True)
 daemon_thread.start()
 
-# Helper handlers for Interactive Telegram Bot Commands (/status, /logs, /restart, /stop)
-def handle_telegram_status_command(chat_id, user_info):
-    username = user_info['username']
+def build_telegram_status_payload(username):
+    """ Generates dynamic Telegram status message and inline keyboard buttons based on real-time bot status """
     all_subs = get_all_submissions()
     user_subs = [s for s in all_subs if s['user'] == username]
 
     if not user_subs:
-        send_telegram_alert(
-            chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO",
-            details=f"🤖 *BOTHOST STATUS FOR* `{username}`\n\nNo bot submissions found under your account. Deploy a bot on [BotHost Dashboard](https://bothost-dq6s.onrender.com/dashboard)."
+        return (
+            f"🤖 *BOTHOST STATUS FOR* `{username}`\n\nNo bot submissions found under your account. Deploy a bot on [BotHost Dashboard](https://bothost-dq6s.onrender.com/dashboard).",
+            None
         )
-        return
 
     active_count = sum(1 for s in user_subs if s.get('status') == 'running')
     crashed_count = sum(1 for s in user_subs if s.get('status') == 'crashed')
@@ -694,21 +712,35 @@ def handle_telegram_status_command(chat_id, user_info):
     keyboard_buttons = []
 
     for idx, s in enumerate(user_subs, 1):
-        uptime_info = f" ({s.get('uptime_str', 'Online')})" if s.get('status') == 'running' else ""
-        status_icon = f"🟢 RUNNING{uptime_info}" if s.get('status') == 'running' else ("🔴 CRASHED" if s.get('status') == 'crashed' else f"🟡 {s.get('status', '').upper()}")
+        is_running = (s.get('status') == 'running')
+        uptime_info = f" ({s.get('uptime_str', 'Online')})" if is_running else ""
+        status_icon = f"🟢 RUNNING{uptime_info}" if is_running else ("🔴 CRASHED" if s.get('status') == 'crashed' else f"🟡 {s.get('status', '').upper()}")
+        
         msg += f"*{idx}. {s.get('name', 'Bot')}*\n"
         msg += f"   🆔 ID: `{s['id']}` | Status: {status_icon}\n"
         msg += f"   ⏱ Created: `{s.get('created_at', '')}`\n\n"
 
-        keyboard_buttons.append([
-            {"text": f"📄 Logs #{s['id']}", "callback_data": f"logs_{s['id']}"},
-            {"text": f"⚡ Hot-Reload #{s['id']}", "callback_data": f"restart_{s['id']}"},
-            {"text": f"⏹ Stop #{s['id']}", "callback_data": f"stop_{s['id']}"}
-        ])
+        row_buttons = [
+            {"text": f"📄 Logs #{s['id']}", "callback_data": f"logs_{s['id']}"}
+        ]
+
+        # Dynamic Start / Stop / Hot-Reload Button Toggle
+        if is_running:
+            row_buttons.append({"text": f"⚡ Hot-Reload #{s['id']}", "callback_data": f"restart_{s['id']}"})
+            row_buttons.append({"text": f"⏹ Stop #{s['id']}", "callback_data": f"stop_{s['id']}"})
+        else:
+            row_buttons.append({"text": f"▶️ Start #{s['id']}", "callback_data": f"start_{s['id']}"})
+
+        keyboard_buttons.append(row_buttons)
 
     msg += f"📊 *Total:* `{len(user_subs)}` | *Active:* `{active_count}` | *Crashed:* `{crashed_count}`"
-
     reply_markup = {"inline_keyboard": keyboard_buttons}
+    return msg, reply_markup
+
+# Helper handlers for Interactive Telegram Bot Commands (/status, /logs, /restart, /stop, /start_bot)
+def handle_telegram_status_command(chat_id, user_info):
+    username = user_info['username']
+    msg, reply_markup = build_telegram_status_payload(username)
     send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details=msg, reply_markup=reply_markup)
 
 def handle_telegram_logs_command(chat_id, sub_id):
@@ -726,7 +758,7 @@ def handle_telegram_logs_command(chat_id, sub_id):
     except Exception as e:
         send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"Error reading logs: {e}")
 
-def handle_telegram_restart_command(chat_id, sub_id):
+def handle_telegram_restart_command(chat_id, sub_id, message_id=None):
     send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"⚡ *Hot-Reloading Bot #`{sub_id}` with 0-downtime...*")
     success, msg = reload_bot_process_zero_downtime(sub_id)
     if success:
@@ -735,10 +767,37 @@ def handle_telegram_restart_command(chat_id, sub_id):
         update_submission_status(sub_id, 'crashed')
         send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"❌ *Failed to hot-reload bot #`{sub_id}`:* `{msg}`")
 
-def handle_telegram_stop_command(chat_id, sub_id):
+    # Dynamic Telegram Keyboard Update
+    user_record = get_user_by_telegram_chat_id(chat_id)
+    if user_record and message_id:
+        msg_text, reply_markup = build_telegram_status_payload(user_record['username'])
+        edit_telegram_message_text(chat_id, message_id, msg_text, reply_markup)
+
+def handle_telegram_start_command_action(chat_id, sub_id, message_id=None):
+    success, msg = start_bot_process(sub_id)
+    if success:
+        update_submission_status(sub_id, 'running')
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"▶️ *Bot #`{sub_id}` started successfully!* Status: 🟢 RUNNING")
+    else:
+        update_submission_status(sub_id, 'crashed')
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"❌ *Failed to start bot #`{sub_id}`:* `{msg}`")
+
+    # Dynamic Telegram Keyboard Update
+    user_record = get_user_by_telegram_chat_id(chat_id)
+    if user_record and message_id:
+        msg_text, reply_markup = build_telegram_status_payload(user_record['username'])
+        edit_telegram_message_text(chat_id, message_id, msg_text, reply_markup)
+
+def handle_telegram_stop_command(chat_id, sub_id, message_id=None):
     stop_bot_process(sub_id)
-    update_submission_status(sub_id, 'approved')
-    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"⏹ *Bot #`{sub_id}` stopped safely.*")
+    update_submission_status(sub_id, 'stopped')
+    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"⏹ *Bot #`{sub_id}` stopped safely.* Status: 🔴 STOPPED")
+
+    # Dynamic Telegram Keyboard Update
+    user_record = get_user_by_telegram_chat_id(chat_id)
+    if user_record and message_id:
+        msg_text, reply_markup = build_telegram_status_payload(user_record['username'])
+        edit_telegram_message_text(chat_id, message_id, msg_text, reply_markup)
 
 # Background Polling Worker for @BotHostAlertBot Commands & Callbacks
 def telegram_alert_bot_polling():
@@ -756,12 +815,15 @@ def telegram_alert_bot_polling():
                     for update in data.get("result", []):
                         last_update_id = max(last_update_id, update.get("update_id", 0))
 
-                        # Handle Inline Keyboard Callback Buttons
+                        # Handle Dynamic Inline Keyboard Callback Buttons
                         if "callback_query" in update:
                             cb = update["callback_query"]
                             cb_id = cb.get("id")
                             cb_data = cb.get("data", "")
-                            cb_chat_id = cb.get("message", {}).get("chat", {}).get("id")
+                            cb_message = cb.get("message", {})
+                            cb_chat_id = cb_message.get("chat", {}).get("id")
+                            cb_msg_id = cb_message.get("message_id")
+                            
                             answer_callback_query(cb_id, f"Processing {cb_data}...")
 
                             if cb_data.startswith("logs_"):
@@ -769,10 +831,13 @@ def telegram_alert_bot_polling():
                                 handle_telegram_logs_command(cb_chat_id, sub_id)
                             elif cb_data.startswith("restart_"):
                                 sub_id = cb_data.replace("restart_", "")
-                                handle_telegram_restart_command(cb_chat_id, sub_id)
+                                handle_telegram_restart_command(cb_chat_id, sub_id, cb_msg_id)
+                            elif cb_data.startswith("start_"):
+                                sub_id = cb_data.replace("start_", "")
+                                handle_telegram_start_command_action(cb_chat_id, sub_id, cb_msg_id)
                             elif cb_data.startswith("stop_"):
                                 sub_id = cb_data.replace("stop_", "")
-                                handle_telegram_stop_command(cb_chat_id, sub_id)
+                                handle_telegram_stop_command(cb_chat_id, sub_id, cb_msg_id)
 
                         # Handle Regular Commands (/start, /status, /logs, /restart, /stop)
                         if "message" in update:
@@ -820,7 +885,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_logs_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
 
                             # 4. /restart command
                             elif text.startswith("/restart"):
@@ -829,7 +894,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_restart_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
 
                             # 5. /stop command
                             elif text.startswith("/stop"):
@@ -838,7 +903,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_stop_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/stop <submission_id>` (e.g. `/stop 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/stop <submission_id>` (e.g. `/stop 9bf1e3e7`)")
 
         except Exception as e:
             time.sleep(5)
