@@ -6,6 +6,7 @@ import subprocess
 import sys
 import zipfile
 import shutil
+import stat
 import threading
 import time
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
@@ -49,6 +50,14 @@ if HAS_PYMONGO:
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
 AUTO_RESTART_INITIALIZED = False
+
+def remove_readonly(func, path, excinfo):
+    """ Helper to remove read-only attributes on Windows when deleting .git folders """
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
 
 def get_authenticated_clone_url(repo_url):
     """ Converts https://github.com/owner/repo to authenticated HTTPS URL for private repositories """
@@ -207,7 +216,7 @@ def delete_submission_permanently(sub_id):
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     if os.path.exists(sub_dir):
         try:
-            shutil.rmtree(sub_dir)
+            shutil.rmtree(sub_dir, onerror=remove_readonly)
         except Exception as e:
             print("Error deleting upload dir:", e)
 
