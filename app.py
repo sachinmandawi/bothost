@@ -7,6 +7,12 @@ import sys
 import zipfile
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 
+try:
+    import pymongo
+    HAS_PYMONGO = True
+except ImportError:
+    HAS_PYMONGO = False
+
 app = Flask(__name__)
 app.secret_key = 'bothost-secret-key-super-secure'
 
@@ -17,10 +23,99 @@ DB_FILE = os.path.join(os.path.dirname(__file__), 'db.json')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(LOGS_FOLDER, exist_ok=True)
 
+# MongoDB Atlas Connection URI provided by user
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://sachinmandawitime_db_user:U8GnBrYwTOXTsa1M@gmailfarmer.d9lf5r2.mongodb.net/?retryWrites=true&w=majority")
+
+mongo_client = None
+mongo_db = None
+
+if HAS_PYMONGO:
+    try:
+        mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000, connectTimeoutMS=3000)
+        mongo_client.admin.command('ping')
+        mongo_db = mongo_client['bothost_database']
+        print("[SUCCESS] Connected to MongoDB Atlas Cloud Database successfully!")
+    except Exception as e:
+        print(f"[WARNING] MongoDB Atlas connection unavailable ({str(e)[:80]}). Using db.json storage.")
+        mongo_db = None
+
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
 
-def load_db():
+def get_user(username):
+    """ Fetch user dict from MongoDB or db.json """
+    if mongo_db is not None:
+        try:
+            u = mongo_db.users.find_one({"username": username})
+            if u:
+                return {"username": u["username"], "password": u["password"], "created_at": u.get("created_at", "")}
+        except Exception as e:
+            print("MongoDB get_user error:", e)
+
+    db = load_json_db()
+    users = db.get("users", {})
+    if username in users:
+        return users[username]
+    return None
+
+def create_user(username, password):
+    """ Insert new user into MongoDB and db.json """
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if mongo_db is not None:
+        try:
+            mongo_db.users.update_one(
+                {"username": username},
+                {"$set": {"username": username, "password": password, "created_at": now_str}},
+                upsert=True
+            )
+        except Exception as e:
+            print("MongoDB create_user error:", e)
+
+    db = load_json_db()
+    db["users"][username] = {"password": password, "created_at": now_str}
+    save_json_db(db)
+
+def get_all_submissions():
+    """ Get all bot submissions from MongoDB or db.json """
+    if mongo_db is not None:
+        try:
+            subs = list(mongo_db.submissions.find({}, {"_id": 0}))
+            if subs:
+                return subs
+        except Exception as e:
+            print("MongoDB get_all_submissions error:", e)
+
+    db = load_json_db()
+    return db.get("submissions", [])
+
+def add_submission(sub_dict):
+    """ Add new submission to MongoDB and db.json """
+    if mongo_db is not None:
+        try:
+            mongo_db.submissions.insert_one(dict(sub_dict))
+        except Exception as e:
+            print("MongoDB add_submission error:", e)
+
+    db = load_json_db()
+    db["submissions"].append(sub_dict)
+    save_json_db(db)
+
+def update_submission_status(sub_id, new_status):
+    """ Update submission status in MongoDB and db.json """
+    if mongo_db is not None:
+        try:
+            mongo_db.submissions.update_one({"id": sub_id}, {"$set": {"status": new_status}})
+        except Exception as e:
+            print("MongoDB update_submission_status error:", e)
+
+    db = load_json_db()
+    for s in db.get("submissions", []):
+        if s["id"] == sub_id:
+            s["status"] = new_status
+            break
+    save_json_db(db)
+
+def load_json_db():
     if not os.path.exists(DB_FILE):
         data = {
             "users": {
@@ -29,8 +124,7 @@ def load_db():
             },
             "submissions": []
         }
-        with open(DB_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        save_json_db(data)
         return data
 
     try:
@@ -44,7 +138,7 @@ def load_db():
     except Exception:
         return {"users": {}, "submissions": []}
 
-def save_db(data):
+def save_json_db(data):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
@@ -131,6 +225,7 @@ def health_ping():
     return jsonify({
         "status": "ok",
         "service": "BotHost Server",
+        "database": "MongoDB Atlas" if mongo_db is not None else "Local JSON",
         "timestamp": datetime.datetime.now().isoformat()
     }), 200
 
@@ -150,12 +245,11 @@ def login():
             flash('Username and password are required', 'error')
             return render_template('login.html')
 
-        db = load_db()
-        users = db.get('users', {})
+        user_data = get_user(username)
 
         # Strict authentication check
-        if username in users:
-            if users[username]['password'] == password:
+        if user_data:
+            if user_data['password'] == password:
                 session['user'] = username
                 session['is_admin'] = (username.lower() == 'admin')
                 flash(f'Successfully logged in as {username}', 'success')
@@ -184,16 +278,12 @@ def signup():
             flash('Passwords do not match', 'error')
             return render_template('signup.html')
 
-        db = load_db()
-        if username in db['users']:
+        existing = get_user(username)
+        if existing:
             flash('Username already exists. Please pick another or log in.', 'error')
             return render_template('signup.html')
 
-        db['users'][username] = {
-            "password": password,
-            "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        save_db(db)
+        create_user(username, password)
 
         session['user'] = username
         session['is_admin'] = (username.lower() == 'admin')
@@ -214,8 +304,8 @@ def dashboard():
         flash('Please log in first', 'error')
         return redirect(url_for('login'))
     
-    db = load_db()
-    user_submissions = [s for s in db['submissions'] if s['user'] == session['user']]
+    all_subs = get_all_submissions()
+    user_submissions = [s for s in all_subs if s['user'] == session['user']]
     user_submissions.reverse()
     return render_template('dashboard.html', submissions=user_submissions)
 
@@ -275,9 +365,7 @@ def upload():
         "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
-    db = load_db()
-    db['submissions'].append(submission)
-    save_db(db)
+    add_submission(submission)
 
     flash('Bot project submitted successfully! Under review.', 'success')
     return redirect(url_for('dashboard'))
@@ -288,37 +376,35 @@ def admin():
         session['user'] = 'Admin'
         session['is_admin'] = True
 
-    db = load_db()
-    all_submissions = list(db['submissions'])
+    all_submissions = list(get_all_submissions())
     all_submissions.reverse()
     return render_template('admin.html', submissions=all_submissions)
 
 @app.route('/admin/review/<sub_id>/<action>')
 def review_action(sub_id, action):
-    db = load_db()
+    all_subs = get_all_submissions()
     updated = False
     msg = ""
 
-    for sub in db['submissions']:
+    for sub in all_subs:
         if sub['id'] == sub_id:
             if action in ('approve', 'approved'):
-                sub['status'] = 'running'
+                update_submission_status(sub_id, 'running')
                 success, msg = start_bot_process(sub_id)
                 if not success:
-                    sub['status'] = 'approved'
+                    update_submission_status(sub_id, 'approved')
             elif action in ('reject', 'rejected'):
                 stop_bot_process(sub_id)
-                sub['status'] = 'rejected'
+                update_submission_status(sub_id, 'rejected')
                 msg = f"Submission #{sub_id} marked as REJECTED."
             elif action == 'stop':
                 stop_bot_process(sub_id)
-                sub['status'] = 'approved'
+                update_submission_status(sub_id, 'approved')
                 msg = f"Bot #{sub_id} process stopped."
             updated = True
             break
     
     if updated:
-        save_db(db)
         flash(msg or f'Submission #{sub_id} marked as {action}.', 'success')
     return redirect(url_for('admin'))
 
