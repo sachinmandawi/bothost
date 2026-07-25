@@ -39,7 +39,7 @@ mongo_db = None
 
 if HAS_PYMONGO:
     try:
-        mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000, connectTimeoutMS=3000)
+        mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
         mongo_client.admin.command('ping')
         mongo_db = mongo_client['bothost_database']
         print("[SUCCESS] Connected to MongoDB Atlas Cloud Database successfully!")
@@ -49,7 +49,6 @@ if HAS_PYMONGO:
 
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
-AUTO_RESTART_INITIALIZED = False
 
 def remove_readonly(func, path, excinfo):
     """ Helper to remove read-only attributes on Windows when deleting .git folders """
@@ -69,34 +68,34 @@ def get_authenticated_clone_url(repo_url):
         url = url.replace('https://github.com/', f'https://{SYSTEM_GITHUB_TOKEN}@github.com/')
     return url
 
-def auto_restart_approved_bots():
-    """ Automatically restarts all bots marked as 'running' when the server boots or redeploys """
-    global AUTO_RESTART_INITIALIZED
-    if AUTO_RESTART_INITIALIZED:
-        return
-    AUTO_RESTART_INITIALIZED = True
-
-    print("[AUTO-RESTART] Checking for active bots to resume after server boot/redeploy...")
-    time.sleep(3)
-    all_subs = get_all_submissions()
-    resumed_count = 0
-    for sub in all_subs:
-        if sub.get('status') in ('running', 'approved'):
-            sub_id = sub['id']
-            proc = RUNNING_PROCESSES.get(sub_id)
-            if proc is None or proc.poll() is not None:
-                print(f"[AUTO-RESTART] Resuming bot #{sub_id} ({sub.get('name')})...")
-                success, msg = start_bot_process(sub_id)
-                if success:
-                    resumed_count += 1
-                    update_submission_status(sub_id, 'running')
-                else:
-                    print(f"[AUTO-RESTART] Warning for #{sub_id}: {msg}")
-
-    print(f"[AUTO-RESTART] Finished. Successfully resumed {resumed_count} active bot(s).")
+def continuous_bot_keeper_daemon():
+    """ Continuous background daemon that ensures all approved & running bots stay online permanently """
+    print("[DAEMON] Starting 24/7 Continuous Bot Health & Auto-Resume Worker...")
+    while True:
+        try:
+            time.sleep(10)
+            all_subs = get_all_submissions()
+            for sub in all_subs:
+                sub_id = sub.get('id')
+                status = sub.get('status')
+                
+                # Auto-resume any bot marked as 'running' or 'approved' if its subprocess is dead/missing
+                if status in ('running', 'approved'):
+                    proc = RUNNING_PROCESSES.get(sub_id)
+                    if proc is None or proc.poll() is not None:
+                        print(f"[DAEMON] Auto-resuming bot #{sub_id} ({sub.get('name')})...")
+                        success, msg = start_bot_process(sub_id)
+                        if success:
+                            update_submission_status(sub_id, 'running')
+                        else:
+                            print(f"[DAEMON] Start attempt for #{sub_id}: {msg}")
+        except Exception as e:
+            print(f"[DAEMON] Worker loop exception: {e}")
+        
+        time.sleep(20)
 
 def check_and_update_bot_statuses():
-    """ Monitors background processes with auto-healing to prevent false crashes """
+    """ Monitors background processes and ensures offline bots get auto-resumed by daemon """
     all_subs = get_all_submissions()
     for sub in all_subs:
         sub_id = sub['id']
@@ -104,23 +103,11 @@ def check_and_update_bot_statuses():
         proc = RUNNING_PROCESSES.get(sub_id)
 
         if current_status == 'running':
-            # If process is not alive in memory, attempt auto-healing restart
             if proc is None or proc.poll() is not None:
-                # Attempt silent auto-healing restart
+                # Attempt immediate restart
                 success, msg = start_bot_process(sub_id)
                 if success:
                     continue
-
-                # If start_bot_process fails, mark as crashed with log trace
-                exit_code = proc.poll() if proc else 'unknown'
-                update_submission_status(sub_id, 'crashed')
-                
-                log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
-                try:
-                    with open(log_file_path, "a", encoding="utf-8") as f:
-                        f.write(f"\n❌ [CRASH DETECTED] Bot process terminated at {datetime.datetime.now()} with exit code: {exit_code}\n")
-                except Exception:
-                    pass
 
 def get_user(username):
     """ Fetch user dict from MongoDB or db.json """
@@ -374,8 +361,9 @@ def stop_bot_process(sub_id):
     if sub_id in RUNNING_PROCESSES:
         del RUNNING_PROCESSES[sub_id]
 
-# Trigger auto-restart thread on server start
-threading.Thread(target=auto_restart_approved_bots, daemon=True).start()
+# Start 24/7 Continuous Background Daemon Thread
+daemon_thread = threading.Thread(target=continuous_bot_keeper_daemon, daemon=True)
+daemon_thread.start()
 
 # Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')
@@ -469,7 +457,6 @@ def dashboard():
         flash('Please log in first', 'error')
         return redirect(url_for('login'))
     
-    check_and_update_bot_statuses()
     all_subs = get_all_submissions()
     user_submissions = [s for s in all_subs if s['user'] == session['user']]
     user_submissions.reverse()
@@ -606,7 +593,6 @@ def admin():
         flash('Access Denied. Admin login required.', 'error')
         return redirect(url_for('login'))
 
-    check_and_update_bot_statuses()
     all_submissions = list(get_all_submissions())
     all_submissions.reverse()
     return render_template('admin.html', submissions=all_submissions)
