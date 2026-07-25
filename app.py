@@ -6,6 +6,8 @@ import subprocess
 import sys
 import zipfile
 import shutil
+import threading
+import time
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 
 try:
@@ -42,6 +44,32 @@ if HAS_PYMONGO:
 
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
+AUTO_RESTART_INITIALIZED = False
+
+def auto_restart_approved_bots():
+    """ Automatically restarts all bots marked as 'running' when the server boots or redeploys """
+    global AUTO_RESTART_INITIALIZED
+    if AUTO_RESTART_INITIALIZED:
+        return
+    AUTO_RESTART_INITIALIZED = True
+
+    print("[AUTO-RESTART] Checking for active bots to resume after server boot/redeploy...")
+    time.sleep(2) # brief delay for environment initialization
+    all_subs = get_all_submissions()
+    resumed_count = 0
+    for sub in all_subs:
+        if sub.get('status') == 'running':
+            sub_id = sub['id']
+            proc = RUNNING_PROCESSES.get(sub_id)
+            if proc is None or proc.poll() is not None:
+                print(f"[AUTO-RESTART] Resuming bot #{sub_id} ({sub.get('name')})...")
+                success, msg = start_bot_process(sub_id)
+                if success:
+                    resumed_count += 1
+                else:
+                    update_submission_status(sub_id, 'crashed')
+
+    print(f"[AUTO-RESTART] Finished. Successfully resumed {resumed_count} active bot(s).")
 
 def check_and_update_bot_statuses():
     """ Monitors background processes and marks crashed bots as 'crashed' """
@@ -143,22 +171,18 @@ def update_submission_status(sub_id, new_status):
 
 def delete_submission_permanently(sub_id):
     """ Permanently delete submission record and uploaded files """
-    # 1. Stop process if running
     stop_bot_process(sub_id)
 
-    # 2. Delete from MongoDB
     if mongo_db is not None:
         try:
             mongo_db.submissions.delete_one({"id": sub_id})
         except Exception as e:
             print("MongoDB delete submission error:", e)
 
-    # 3. Delete from db.json
     db = load_json_db()
     db["submissions"] = [s for s in db.get("submissions", []) if s["id"] != sub_id]
     save_json_db(db)
 
-    # 4. Remove upload directory and log file
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     if os.path.exists(sub_dir):
         try:
@@ -282,6 +306,9 @@ def stop_bot_process(sub_id):
                 pass
     if sub_id in RUNNING_PROCESSES:
         del RUNNING_PROCESSES[sub_id]
+
+# Trigger auto-restart thread on server start
+threading.Thread(target=auto_restart_approved_bots, daemon=True).start()
 
 # Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')
@@ -465,7 +492,6 @@ def delete_submission_user(sub_id):
         flash('Submission not found.', 'error')
         return redirect(url_for('dashboard'))
 
-    # Only owner or admin can delete
     if session['user'] == sub_owner or session.get('is_admin'):
         delete_submission_permanently(sub_id)
         flash(f'Submission #{sub_id} deleted successfully.', 'success')
