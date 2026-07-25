@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — BotHost{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Welcome, {{ session.get('user', 'User') }}</h1>
+<p class="page-sub">Upload your bot and we'll review it before it goes live.</p>
+
+<div class="grid-2">
+  <div class="panel">
+    <h2>&gt;_ Deploy a bot</h2>
+    <div class="tabs">
+      <button type="button" class="tab-btn active" data-target="tab-files">bot.py + requirements.txt</button>
+      <button type="button" class="tab-btn" data-target="tab-zip">Upload .zip</button>
+    </div>
+
+    <form method="POST" action="/upload" enctype="multipart/form-data" class="stack-form">
+      <input type="hidden" name="upload_mode" value="files" class="mode-input">
+
+      <div id="tab-files" class="tab-content active">
+        <label for="bot_file">bot.py</label>
+        <input type="file" id="bot_file" name="bot_file" accept=".py">
+
+        <label for="requirements_file">requirements.txt</label>
+        <input type="file" id="requirements_file" name="requirements_file" accept=".txt">
+      </div>
+
+      <div id="tab-zip" class="tab-content">
+        <label for="zip_file">project.zip</label>
+        <input type="file" id="zip_file" name="zip_file" accept=".zip">
+        <p class="hint">Use this if your bot has multiple files/folders.</p>
+      </div>
+
+      <button type="submit" class="btn-primary">$ submit for approval</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>&gt;_ Your submissions</h2>
+    {% if submissions %}
+      <ul class="submission-list">
+        {% for sub in submissions %}
+          <li class="submission-item">
+            <div>
+              <span class="mono" style="font-weight: 600;">{{ sub.name }}</span>
+              <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
+            </div>
+            <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state">No submissions yet. Upload your first bot to get started.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

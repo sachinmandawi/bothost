@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Review Portal — BotHost{% endblock %}
+
+{% block content %}
+<a href="/dashboard" class="back-link">&larr; Back to User Dashboard</a>
+<h1 class="page-title" style="color: var(--warn);">&gt;_ Admin Review Portal</h1>
+<p class="page-sub">Review incoming bot submissions, inspect uploaded code, approve or reject for live deployment.</p>
+
+<div class="panel">
+  <h2>Pending & Past Submissions</h2>
+  {% if submissions %}
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>User</th>
+          <th>Mode</th>
+          <th>Files</th>
+          <th>Submitted At</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sub in submissions %}
+          <tr>
+            <td class="mono">{{ sub.id }}</td>
+            <td class="mono">{{ sub.user }}</td>
+            <td class="mono">{{ sub.mode }}</td>
+            <td>
+              <button class="btn-mini btn-view" onclick="viewSubmissionFiles('{{ sub.id }}')">Inspect Files</button>
+            </td>
+            <td class="mono" style="font-size: 0.78rem;">{{ sub.created_at }}</td>
+            <td>
+              <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+            </td>
+            <td>
+              <div class="actions">
+                {% if sub.status != 'approved' %}
+                  <a href="/admin/review/{{ sub.id }}/approve" class="btn-mini btn-approve">Approve</a>
+                {% endif %}
+                {% if sub.status != 'rejected' %}
+                  <a href="/admin/review/{{ sub.id }}/reject" class="btn-mini btn-reject">Reject</a>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state">No submissions found in system database.</p>
+  {% endif %}
+</div>
+
+<!-- Modal for inspecting code files -->
+<div id="fileModal" class="modal-overlay">
+  <div class="modal-body">
+    <div class="modal-header">
+      <h3 id="modalTitle">File Inspector</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" id="modalContent">
+      <p>Loading files...</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function viewSubmissionFiles(subId) {
+  const modal = document.getElementById('fileModal');
+  const title = document.getElementById('modalTitle');
+  const content = document.getElementById('modalContent');
+  
+  title.innerText = `Inspect Files — Submission #${subId}`;
+  content.innerHTML = '<p style="color: var(--text-dim);">Loading submitted bot files...</p>';
+  modal.classList.add('active');
+
+  fetch(`/api/submissions/${subId}/files`)
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        content.innerHTML = `<p style="color: var(--danger);">${data.error}</p>`;
+        return;
+      }
+      let html = '';
+      data.files.forEach(file => {
+        html += `<h4 style="color: var(--accent); font-family: var(--mono); margin-top: 16px; margin-bottom: 6px;">📄 ${file.filename}</h4>`;
+        html += `<pre class="code-block">${file.content || '[Binary or Zip File Archive]'}</pre>`;
+      });
+      content.innerHTML = html;
+    })
+    .catch(err => {
+      content.innerHTML = `<p style="color: var(--danger);">Failed to load files: ${err}</p>`;
+    });
+}
+
+function closeModal() {
+  document.getElementById('fileModal').classList.remove('active');
+}
+</script>
+{% endblock %}
