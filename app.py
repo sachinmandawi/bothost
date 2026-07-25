@@ -342,9 +342,13 @@ def start_bot_process(sub_id):
         log_out.write(f"\n--- BOT ({entry_basename}) STARTED AT {datetime.datetime.now()} ---\n")
         log_out.flush()
 
+        proc_env = os.environ.copy()
+        proc_env["PYTHONIOENCODING"] = "utf-8"
+
         proc = subprocess.Popen(
             [sys.executable, python_entry_file],
             cwd=entry_dir,
+            env=proc_env,
             stdout=log_out,
             stderr=log_out,
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
