@@ -56,7 +56,7 @@ if HAS_PYMONGO:
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
 
-def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details=""):
+def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details="", reply_markup=None):
     """ Sends formatted Telegram alert message to user """
     if not chat_id or not ALERT_BOT_TOKEN:
         return False
@@ -74,27 +74,36 @@ def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details="
             f"👉 [Open Dashboard to Fix](https://bothost-dq6s.onrender.com/dashboard)"
         )
     else:
-        msg_text = (
-            f"ℹ️ *[BOTHOST ALERT]*\n\n"
-            f"🤖 *Bot:* `{sub_name}` (#`{sub_id}`)\n"
-            f"⏱ *Time:* `{now_str}`\n"
-            f"📝 `{details}`"
-        )
+        msg_text = details
 
     try:
         url = f"https://api.telegram.org/bot{ALERT_BOT_TOKEN}/sendMessage"
-        payload = json.dumps({
+        payload_dict = {
             "chat_id": str(chat_id),
             "text": msg_text,
             "parse_mode": "Markdown",
             "disable_web_page_preview": True
-        }).encode('utf-8')
+        }
+        if reply_markup:
+            payload_dict["reply_markup"] = reply_markup
+
+        payload = json.dumps(payload_dict).encode('utf-8')
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=5) as res:
             return res.status == 200
     except Exception as e:
         print(f"Error sending Telegram alert to {chat_id}: {e}")
         return False
+
+def answer_callback_query(callback_query_id, text=""):
+    """ Acknowledges telegram inline button callback """
+    try:
+        url = f"https://api.telegram.org/bot{ALERT_BOT_TOKEN}/answerCallbackQuery"
+        payload = json.dumps({"callback_query_id": callback_query_id, "text": text}).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
 
 def remove_readonly(func, path, excinfo):
     """ Helper to remove read-only attributes on Windows when deleting .git folders """
@@ -154,7 +163,7 @@ def check_and_update_bot_statuses():
                 if success:
                     continue
                 
-                # If bot process actually crashed and fails restart
+                # If bot process crashed and fails restart
                 update_submission_status(sub_id, 'crashed')
                 sub_owner = sub.get('user')
                 owner_data = get_user(sub_owner) if sub_owner else None
@@ -188,6 +197,22 @@ def get_user(username):
     users = db.get("users", {})
     if username in users:
         return users[username]
+    return None
+
+def get_user_by_telegram_chat_id(chat_id):
+    """ Finds user record matching given telegram_chat_id """
+    if mongo_db is not None:
+        try:
+            u = mongo_db.users.find_one({"telegram_chat_id": str(chat_id)})
+            if u:
+                return u
+        except Exception as e:
+            print("MongoDB get_user_by_telegram_chat_id error:", e)
+
+    db = load_json_db()
+    for uname, udata in db.get("users", {}).items():
+        if str(udata.get("telegram_chat_id")) == str(chat_id):
+            return udata
     return None
 
 def create_user(username, password, is_admin=False):
@@ -442,14 +467,80 @@ def stop_bot_process(sub_id):
 daemon_thread = threading.Thread(target=continuous_bot_keeper_daemon, daemon=True)
 daemon_thread.start()
 
-# Background Polling Worker for @BotHostAlertBot Deep Linking (/start connect_<username>)
+# Helper handlers for Interactive Telegram Bot Commands (/status, /logs, /restart, /stop)
+def handle_telegram_status_command(chat_id, user_info):
+    username = user_info['username']
+    all_subs = get_all_submissions()
+    user_subs = [s for s in all_subs if s['user'] == username]
+
+    if not user_subs:
+        send_telegram_alert(
+            chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO",
+            details=f"🤖 *BOTHOST STATUS FOR* `{username}`\n\nNo bot submissions found under your account. Deploy a bot on [BotHost Dashboard](https://bothost-dq6s.onrender.com/dashboard)."
+        )
+        return
+
+    active_count = sum(1 for s in user_subs if s.get('status') == 'running')
+    crashed_count = sum(1 for s in user_subs if s.get('status') == 'crashed')
+
+    msg = f"🤖 *YOUR BOT HOSTING STATUS* (`{username}`)\n\n"
+    keyboard_buttons = []
+
+    for idx, s in enumerate(user_subs, 1):
+        status_icon = "🟢 RUNNING" if s.get('status') == 'running' else ("🔴 CRASHED" if s.get('status') == 'crashed' else f"🟡 {s.get('status', '').upper()}")
+        msg += f"*{idx}. {s.get('name', 'Bot')}*\n"
+        msg += f"   🆔 ID: `{s['id']}` | Status: {status_icon}\n"
+        msg += f"   ⏱ Created: `{s.get('created_at', '')}`\n\n"
+
+        keyboard_buttons.append([
+            {"text": f"📄 Logs #{s['id']}", "callback_data": f"logs_{s['id']}"},
+            {"text": f"🔄 Restart #{s['id']}", "callback_data": f"restart_{s['id']}"},
+            {"text": f"⏹ Stop #{s['id']}", "callback_data": f"stop_{s['id']}"}
+        ])
+
+    msg += f"📊 *Total:* `{len(user_subs)}` | *Active:* `{active_count}` | *Crashed:* `{crashed_count}`"
+
+    reply_markup = {"inline_keyboard": keyboard_buttons}
+    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details=msg, reply_markup=reply_markup)
+
+def handle_telegram_logs_command(chat_id, sub_id):
+    log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+    if not os.path.exists(log_file_path):
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"📄 *BOT LOGS (#`{sub_id}`)*\n\nNo log records found for this submission yet.")
+        return
+
+    try:
+        with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            logs = f.read()
+        excerpt = logs[-1500:] if len(logs) > 1500 else logs
+        msg = f"📄 *EXECUTION LOGS (#`{sub_id}`)*\n\n```text\n{excerpt}\n```"
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=msg)
+    except Exception as e:
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"Error reading logs: {e}")
+
+def handle_telegram_restart_command(chat_id, sub_id):
+    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"🔄 *Restarting Bot #`{sub_id}`...*")
+    success, msg = start_bot_process(sub_id)
+    if success:
+        update_submission_status(sub_id, 'running')
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"✅ *Bot #`{sub_id}` restarted successfully!* Status: 🟢 RUNNING")
+    else:
+        update_submission_status(sub_id, 'crashed')
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"❌ *Failed to restart bot #`{sub_id}`:* `{msg}`")
+
+def handle_telegram_stop_command(chat_id, sub_id):
+    stop_bot_process(sub_id)
+    update_submission_status(sub_id, 'approved')
+    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"⏹ *Bot #`{sub_id}` stopped safely.*")
+
+# Background Polling Worker for @BotHostAlertBot Commands & Callbacks
 def telegram_alert_bot_polling():
     if not ALERT_BOT_TOKEN:
         return
     last_update_id = 0
     while True:
         try:
-            time.sleep(3)
+            time.sleep(2)
             url = f"https://api.telegram.org/bot{ALERT_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=10) as res:
@@ -457,40 +548,91 @@ def telegram_alert_bot_polling():
                 if data.get("ok"):
                     for update in data.get("result", []):
                         last_update_id = max(last_update_id, update.get("update_id", 0))
-                        message = update.get("message", {})
-                        text = message.get("text", "")
-                        chat_id = message.get("chat", {}).get("id")
 
-                        if text and chat_id and text.startswith("/start"):
-                            parts = text.split()
-                            if len(parts) > 1 and parts[1].startswith("connect_"):
-                                username = parts[1].replace("connect_", "").strip()
-                                user_info = get_user(username)
-                                if user_info:
-                                    update_user_telegram_chat_id(username, chat_id)
-                                    send_telegram_alert(
-                                        chat_id=chat_id,
-                                        sub_name="BotHost System",
-                                        sub_id="SYSTEM",
-                                        alert_type="INFO",
-                                        details=f"✅ Account Connected! Welcome `{username}`. You will now receive instant Telegram alerts whenever your bots encounter errors or crashes."
-                                    )
+                        # Handle Inline Keyboard Callback Buttons
+                        if "callback_query" in update:
+                            cb = update["callback_query"]
+                            cb_id = cb.get("id")
+                            cb_data = cb.get("data", "")
+                            cb_chat_id = cb.get("message", {}).get("chat", {}).get("id")
+                            answer_callback_query(cb_id, f"Processing {cb_data}...")
+
+                            if cb_data.startswith("logs_"):
+                                sub_id = cb_data.replace("logs_", "")
+                                handle_telegram_logs_command(cb_chat_id, sub_id)
+                            elif cb_data.startswith("restart_"):
+                                sub_id = cb_data.replace("restart_", "")
+                                handle_telegram_restart_command(cb_chat_id, sub_id)
+                            elif cb_data.startswith("stop_"):
+                                sub_id = cb_data.replace("stop_", "")
+                                handle_telegram_stop_command(cb_chat_id, sub_id)
+
+                        # Handle Regular Commands (/start, /status, /logs, /restart, /stop)
+                        if "message" in update:
+                            message = update.get("message", {})
+                            text = message.get("text", "").strip()
+                            chat_id = message.get("chat", {}).get("id")
+
+                            if not text or not chat_id:
+                                continue
+
+                            # 1. /start command
+                            if text.startswith("/start"):
+                                parts = text.split()
+                                if len(parts) > 1 and parts[1].startswith("connect_"):
+                                    username = parts[1].replace("connect_", "").strip()
+                                    user_info = get_user(username)
+                                    if user_info:
+                                        update_user_telegram_chat_id(username, chat_id)
+                                        send_telegram_alert(
+                                            chat_id=chat_id, sub_name="BotHost System", sub_id="SYSTEM", alert_type="INFO",
+                                            details=f"✅ *ACCOUNT CONNECTED!*\n\nWelcome `{username}`. You will now receive instant Telegram crash alerts and control your bots via Telegram.\n\nType /status to view your running bots!"
+                                        )
+                                    else:
+                                        send_telegram_alert(chat_id=chat_id, sub_name="BotHost System", sub_id="SYSTEM", alert_type="INFO", details=f"⚠️ Account `{username}` not found on BotHost.")
                                 else:
                                     send_telegram_alert(
-                                        chat_id=chat_id,
-                                        sub_name="BotHost System",
-                                        sub_id="SYSTEM",
-                                        alert_type="INFO",
-                                        details=f"⚠️ Account `{username}` not found on BotHost database."
+                                        chat_id=chat_id, sub_name="BotHost System", sub_id="SYSTEM", alert_type="INFO",
+                                        details="👋 *WELCOME TO BOTHOST ALERT BOT!*\n\nCommands Available:\n• /status - Check all your running bots\n• /logs `<id>` - View bot logs\n• /restart `<id>` - Restart bot\n• /stop `<id>` - Stop bot\n\nClick 'Connect via Telegram' on your BotHost Dashboard to link your account."
                                     )
-                            else:
-                                send_telegram_alert(
-                                    chat_id=chat_id,
-                                    sub_name="BotHost System",
-                                    sub_id="SYSTEM",
-                                    alert_type="INFO",
-                                    details="👋 Welcome to *BotHost Alert Bot*! Click 'Connect Telegram' on your BotHost Dashboard to link your account for instant crash alerts."
-                                )
+
+                            # Check user authentication for control commands
+                            user_record = get_user_by_telegram_chat_id(chat_id)
+
+                            # 2. /status or /bots command
+                            if text in ("/status", "/bots"):
+                                if user_record:
+                                    handle_telegram_status_command(chat_id, user_record)
+                                else:
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="⚠️ *Telegram Account Not Linked.*\nPlease click 'Connect via Telegram' on your BotHost Dashboard first.")
+
+                            # 3. /logs command
+                            elif text.startswith("/logs"):
+                                parts = text.split()
+                                if len(parts) > 1:
+                                    sub_id = parts[1].replace("#", "").strip()
+                                    handle_telegram_logs_command(chat_id, sub_id)
+                                else:
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
+
+                            # 4. /restart command
+                            elif text.startswith("/restart"):
+                                parts = text.split()
+                                if len(parts) > 1:
+                                    sub_id = parts[1].replace("#", "").strip()
+                                    handle_telegram_restart_command(chat_id, sub_id)
+                                else:
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
+
+                            # 5. /stop command
+                            elif text.startswith("/stop"):
+                                parts = text.split()
+                                if len(parts) > 1:
+                                    sub_id = parts[1].replace("#", "").strip()
+                                    handle_telegram_stop_command(chat_id, sub_id)
+                                else:
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/stop <submission_id>` (e.g. `/stop 9bf1e3e7`)")
+
         except Exception as e:
             time.sleep(5)
 
@@ -610,7 +752,7 @@ def connect_telegram():
         sub_name="BotHost System",
         sub_id="SYSTEM",
         alert_type="INFO",
-        details=f"✅ Account Connected! Welcome `{session['user']}`. Telegram alerts configured successfully."
+        details=f"✅ *Account Connected!* Welcome `{session['user']}`. You can now use /status, /logs, /restart, and /stop directly in Telegram."
     )
 
     flash('Telegram Chat ID connected successfully! Sent test message.', 'success')
