@@ -57,23 +57,31 @@ if HAS_PYMONGO:
 RUNNING_PROCESSES = {}
 
 def get_bot_uptime_str(started_at_str):
-    """ Calculates human-readable uptime string from start timestamp """
+    """ Calculates human-readable uptime string supporting Minutes, Hours, Days, and Months """
     if not started_at_str:
         return "Online"
     try:
         started_dt = datetime.datetime.strptime(started_at_str, "%Y-%m-%d %H:%M:%S")
         now_dt = datetime.datetime.now()
         diff = now_dt - started_dt
-        days = diff.days
+        
+        total_days = diff.days
         hours, remainder = divmod(diff.seconds, 3600)
         minutes, _ = divmod(remainder, 60)
         
+        months = total_days // 30
+        days = total_days % 30
+        
         parts = []
-        if days > 0:
+        if months > 0:
+            parts.append(f"{months}mo")
+        if days > 0 or months > 0:
             parts.append(f"{days}d")
-        if hours > 0 or days > 0:
+        if hours > 0 or (months == 0 and days < 7):
             parts.append(f"{hours}h")
-        parts.append(f"{minutes}m")
+        if months == 0 and days == 0:
+            parts.append(f"{minutes}m")
+            
         return f"Online {' '.join(parts)}"
     except Exception:
         return "Online"
