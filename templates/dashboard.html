@@ -174,9 +174,9 @@
               <span class="mono" style="font-weight: 600; font-size: 0.95rem;">{{ sub.name }}</span>
             </div>
             
-            <!-- Side-by-Side Status Badges & Date directly below Bot Name -->
+            <!-- Side-by-Side Status Badges & Indian 12h AM/PM Date directly below Bot Name -->
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px;">
-              <span class="tiny">Submitted: {{ sub.created_at }}</span>
+              <span class="tiny">Submitted: {{ sub.formatted_created_at or sub.created_at }}</span>
               <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
               {% if sub.status == 'running' %}
                 <span class="status status-running" style="font-size: 0.68rem; padding: 2px 8px; border-radius: 12px;">

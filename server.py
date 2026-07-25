@@ -67,6 +67,20 @@ if HAS_PYMONGO:
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
 
+def format_indian_12h_datetime(dt_str):
+    """ Formats datetime string into Indian 12-hour AM/PM format e.g. 25 Jul 2026, 07:03 PM """
+    if not dt_str:
+        return ""
+    try:
+        dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%d %b %Y, %I:%M %p")
+    except Exception:
+        try:
+            dt = datetime.datetime.strptime(dt_str.split('.')[0], "%Y-%m-%d %H:%M:%S")
+            return dt.strftime("%d %b %Y, %I:%M %p")
+        except Exception:
+            return dt_str
+
 def get_bot_uptime_str(started_at_str):
     """ Calculates human-readable uptime string supporting Minutes, Hours, Days, and Months """
     if not started_at_str:
@@ -102,7 +116,7 @@ def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details="
     if not chat_id or not ALERT_BOT_TOKEN:
         return False
 
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
+    now_str = datetime.datetime.now().strftime("%d %b %Y, %I:%M %p IST")
     
     if alert_type == "CRASH":
         msg_text = (
@@ -390,22 +404,22 @@ def update_user_telegram_chat_id(username, chat_id):
 
 def get_all_submissions():
     """ Get all bot submissions from MongoDB or db.json """
+    subs = []
     if mongo_db is not None:
         try:
             subs = list(mongo_db.submissions.find({}, {"_id": 0}))
-            if subs:
-                for s in subs:
-                    if s.get('status') == 'running' and s.get('started_at'):
-                        s['uptime_str'] = get_bot_uptime_str(s['started_at'])
-                return subs
         except Exception as e:
             print("MongoDB get_all_submissions error:", e)
 
-    db = load_json_db()
-    subs = db.get("submissions", [])
+    if not subs:
+        db = load_json_db()
+        subs = db.get("submissions", [])
+
     for s in subs:
         if s.get('status') == 'running' and s.get('started_at'):
             s['uptime_str'] = get_bot_uptime_str(s['started_at'])
+        s['formatted_created_at'] = format_indian_12h_datetime(s.get('created_at'))
+
     return subs
 
 def add_submission(sub_dict):
@@ -715,10 +729,11 @@ def build_telegram_status_payload(username):
         is_running = (s.get('status') == 'running')
         uptime_info = f" ({s.get('uptime_str', 'Online')})" if is_running else ""
         status_icon = f"🟢 RUNNING{uptime_info}" if is_running else ("🔴 CRASHED" if s.get('status') == 'crashed' else f"🟡 {s.get('status', '').upper()}")
+        created_at_fmt = s.get('formatted_created_at') or s.get('created_at', '')
         
         msg += f"*{idx}. {s.get('name', 'Bot')}*\n"
         msg += f"   🆔 ID: `{s['id']}` | Status: {status_icon}\n"
-        msg += f"   ⏱ Created: `{s.get('created_at', '')}`\n\n"
+        msg += f"   ⏱ Created: `{created_at_fmt}`\n\n"
 
         row_buttons = [
             {"text": f"📄 Logs #{s['id']}", "callback_data": f"logs_{s['id']}"}
