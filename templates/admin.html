@@ -10,49 +10,51 @@
 <div class="panel">
   <h2>Pending & Active Bot Submissions</h2>
   {% if submissions %}
-    <table class="admin-table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>User</th>
-          <th>Mode</th>
-          <th>Files</th>
-          <th>Submitted At</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for sub in submissions %}
+    <div class="table-responsive">
+      <table class="admin-table">
+        <thead>
           <tr>
-            <td class="mono">{{ sub.id }}</td>
-            <td class="mono">{{ sub.user }}</td>
-            <td class="mono">{{ sub.mode }}</td>
-            <td>
-              <button class="btn-mini btn-view" onclick="viewSubmissionFiles('{{ sub.id }}')">Inspect Files</button>
-            </td>
-            <td class="mono" style="font-size: 0.78rem;">{{ sub.created_at }}</td>
-            <td>
-              <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
-            </td>
-            <td>
-              <div class="actions">
-                {% if sub.status == 'running' %}
-                  <a href="/admin/review/{{ sub.id }}/stop" class="btn-mini btn-reject">Stop Bot</a>
-                  <button class="btn-mini btn-view" onclick="viewBotLogs('{{ sub.id }}')">Logs</button>
-                {% else %}
-                  <a href="/admin/review/{{ sub.id }}/approve" class="btn-mini btn-approve">Approve & Run</a>
-                  {% if sub.status != 'rejected' %}
-                    <a href="/admin/review/{{ sub.id }}/reject" class="btn-mini btn-reject">Reject</a>
-                  {% endif %}
-                {% endif %}
-                <a href="/admin/review/{{ sub.id }}/delete" class="btn-mini btn-reject" onclick="return confirm('Permanently delete submission #{{ sub.id }}?')">Delete</a>
-              </div>
-            </td>
+            <th>ID</th>
+            <th>User</th>
+            <th>Mode</th>
+            <th>Files</th>
+            <th>Submitted At</th>
+            <th>Status</th>
+            <th>Actions</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for sub in submissions %}
+            <tr>
+              <td class="mono">{{ sub.id }}</td>
+              <td class="mono">{{ sub.user }}</td>
+              <td class="mono">{{ sub.mode }}</td>
+              <td>
+                <button class="btn-mini btn-view" onclick="viewSubmissionFiles('{{ sub.id }}')">Inspect Files</button>
+              </td>
+              <td class="mono" style="font-size: 0.78rem;">{{ sub.created_at }}</td>
+              <td>
+                <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+              </td>
+              <td>
+                <div class="actions">
+                  {% if sub.status == 'running' %}
+                    <a href="/admin/review/{{ sub.id }}/stop" class="btn-mini btn-reject">Stop Bot</a>
+                    <button class="btn-mini btn-view" onclick="viewBotLogs('{{ sub.id }}')">Logs</button>
+                  {% else %}
+                    <a href="/admin/review/{{ sub.id }}/approve" class="btn-mini btn-approve">Approve & Run</a>
+                    {% if sub.status != 'rejected' %}
+                      <a href="/admin/review/{{ sub.id }}/reject" class="btn-mini btn-reject">Reject</a>
+                    {% endif %}
+                  {% endif %}
+                  <a href="/admin/review/{{ sub.id }}/delete" class="btn-mini btn-reject" onclick="return confirm('Permanently delete submission #{{ sub.id }}?')">Delete</a>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   {% else %}
     <p class="empty-state">No submissions found in system database.</p>
   {% endif %}
