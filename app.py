@@ -458,7 +458,7 @@ def find_entry_python_file(sub_dir):
     if not os.path.exists(sub_dir):
         return None
 
-    priority_names = ['bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
+    priority_names = ['tg_bot.py', 'bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
 
     for root, _, files in os.walk(sub_dir):
         for p in priority_names:
