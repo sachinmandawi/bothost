@@ -44,6 +44,11 @@
             <div>
               <span class="mono" style="font-weight: 600;">{{ sub.name }}</span>
               <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
+              {% if sub.status == 'crashed' %}
+                <button class="btn-mini btn-reject" style="margin-top: 6px; padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">⚠️ View Crash Log</button>
+              {% elif sub.status == 'running' %}
+                <button class="btn-mini btn-view" style="margin-top: 6px; padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">📄 View Live Logs</button>
+              {% endif %}
             </div>
             <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
           </li>
@@ -54,4 +59,44 @@
     {% endif %}
   </div>
 </div>
+
+<!-- Modal for User to inspect logs & crash trace -->
+<div id="userLogModal" class="modal-overlay">
+  <div class="modal-body">
+    <div class="modal-header">
+      <h3 id="userLogTitle">Bot Logs</h3>
+      <button class="modal-close" onclick="closeUserModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" id="userLogContent">
+      <p>Loading logs...</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function viewUserLogs(subId) {
+  const modal = document.getElementById('userLogModal');
+  const title = document.getElementById('userLogTitle');
+  const content = document.getElementById('userLogContent');
+  
+  title.innerText = `Execution & Crash Logs — Submission #${subId}`;
+  content.innerHTML = '<p style="color: var(--text-dim);">Fetching bot execution logs...</p>';
+  modal.classList.add('active');
+
+  fetch(`/api/submissions/${subId}/logs`)
+    .then(res => res.json())
+    .then(data => {
+      content.innerHTML = `<pre class="code-block" style="color: #3ddc84;">${data.logs || 'No execution logs available.'}</pre>`;
+    })
+    .catch(err => {
+      content.innerHTML = `<p style="color: var(--danger);">Failed to load logs: ${err}</p>`;
+    });
+}
+
+function closeUserModal() {
+  document.getElementById('userLogModal').classList.remove('active');
+}
+</script>
 {% endblock %}

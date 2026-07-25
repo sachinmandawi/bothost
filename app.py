@@ -42,6 +42,27 @@ if HAS_PYMONGO:
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
 
+def check_and_update_bot_statuses():
+    """ Monitors background processes and marks crashed bots as 'crashed' """
+    all_subs = get_all_submissions()
+    for sub in all_subs:
+        sub_id = sub['id']
+        current_status = sub.get('status')
+        proc = RUNNING_PROCESSES.get(sub_id)
+
+        if current_status == 'running':
+            if proc is None or proc.poll() is not None:
+                exit_code = proc.poll() if proc else 'unknown'
+                update_submission_status(sub_id, 'crashed')
+                
+                # Append crash summary to log file
+                log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+                try:
+                    with open(log_file_path, "a", encoding="utf-8") as f:
+                        f.write(f"\n❌ [CRASH DETECTED] Bot process terminated at {datetime.datetime.now()} with exit code: {exit_code}\n")
+                except Exception:
+                    pass
+
 def get_user(username):
     """ Fetch user dict from MongoDB or db.json """
     if mongo_db is not None:
@@ -139,7 +160,6 @@ def load_json_db():
             if "submissions" not in data:
                 data["submissions"] = []
             
-            # Ensure sachinmandawi admin exists
             if "sachinmandawi" not in data["users"]:
                 data["users"]["sachinmandawi"] = {
                     "password": "sachinmandawi",
@@ -235,6 +255,7 @@ def stop_bot_process(sub_id):
 @app.route('/ping')
 @app.route('/health')
 def health_ping():
+    check_and_update_bot_statuses()
     return jsonify({
         "status": "ok",
         "service": "BotHost Server",
@@ -258,7 +279,6 @@ def login():
             flash('Username and password are required', 'error')
             return render_template('login.html')
 
-        # Check for sachinmandawi admin credentials
         if username == 'sachinmandawi' and password == 'sachinmandawi':
             create_user('sachinmandawi', 'sachinmandawi', is_admin=True)
             session['user'] = 'sachinmandawi'
@@ -268,7 +288,6 @@ def login():
 
         user_data = get_user(username)
 
-        # Strict authentication check
         if user_data:
             if user_data['password'] == password:
                 session['user'] = username
@@ -330,6 +349,7 @@ def dashboard():
         flash('Please log in first', 'error')
         return redirect(url_for('login'))
     
+    check_and_update_bot_statuses()
     all_subs = get_all_submissions()
     user_submissions = [s for s in all_subs if s['user'] == session['user']]
     user_submissions.reverse()
@@ -402,6 +422,7 @@ def admin():
         flash('Access Denied. Admin login required.', 'error')
         return redirect(url_for('login'))
 
+    check_and_update_bot_statuses()
     all_submissions = list(get_all_submissions())
     all_submissions.reverse()
     return render_template('admin.html', submissions=all_submissions)
