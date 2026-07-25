@@ -233,15 +233,16 @@ def save_json_db(data):
 
 def find_entry_python_file(sub_dir):
     """ Recursively searches for the main python entry file in the submission folder or subfolders """
+    if not os.path.exists(sub_dir):
+        return None
+
     priority_names = ['bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
 
-    # 1. Search recursively for priority file names
     for root, _, files in os.walk(sub_dir):
         for p in priority_names:
             if p in files:
                 return os.path.join(root, p)
 
-    # 2. Search recursively for any valid .py file
     for root, _, files in os.walk(sub_dir):
         for f in files:
             if f.endswith('.py') and not f.startswith('__') and f != 'setup.py':
@@ -252,8 +253,9 @@ def find_entry_python_file(sub_dir):
 def start_bot_process(sub_id):
     """ Installs requirements and starts python script in background """
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
-    
-    # Auto-extract project.zip if present
+    if not os.path.exists(sub_dir):
+        return False, "Upload folder does not exist on disk."
+
     zip_path = os.path.join(sub_dir, 'project.zip')
     if os.path.exists(zip_path):
         try:
@@ -270,7 +272,6 @@ def start_bot_process(sub_id):
 
     entry_dir = os.path.dirname(python_entry_file)
 
-    # Search for requirements.txt in entry_dir or sub_dir
     req_file = os.path.join(entry_dir, 'requirements.txt')
     if not os.path.exists(req_file):
         req_file = os.path.join(sub_dir, 'requirements.txt')
@@ -320,17 +321,11 @@ def stop_bot_process(sub_id):
 # Trigger auto-restart thread on server start
 threading.Thread(target=auto_restart_approved_bots, daemon=True).start()
 
-# Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
+# Dedicated Ultra-lightweight Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')
 @app.route('/health')
 def health_ping():
-    check_and_update_bot_statuses()
-    return jsonify({
-        "status": "ok",
-        "service": "BotHost Server",
-        "database": "MongoDB Atlas" if mongo_db is not None else "Local JSON",
-        "timestamp": datetime.datetime.now().isoformat()
-    }), 200
+    return "pong", 200, {'Content-Type': 'text/plain'}
 
 @app.route('/')
 def index():
