@@ -82,34 +82,37 @@ def format_indian_12h_datetime(dt_str):
             return dt_str
 
 def get_bot_uptime_str(started_at_str):
-    """ Calculates human-readable uptime string supporting Minutes, Hours, Days, and Months """
+    """ Calculates accurate human-readable uptime string supporting Minutes, Hours, Days, and Months """
     if not started_at_str:
-        return "Online"
+        return "Online 0m"
     try:
-        started_dt = datetime.datetime.strptime(started_at_str, "%Y-%m-%d %H:%M:%S")
+        clean_str = started_at_str.split('.')[0]
+        started_dt = datetime.datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
         now_dt = datetime.datetime.now()
-        diff = now_dt - started_dt
         
-        total_days = diff.days
-        hours, remainder = divmod(diff.seconds, 3600)
+        total_seconds = int((now_dt - started_dt).total_seconds())
+        if total_seconds < 0:
+            total_seconds = 0
+            
+        months, remainder = divmod(total_seconds, 2592000)
+        days, remainder = divmod(remainder, 86400)
+        hours, remainder = divmod(remainder, 3600)
         minutes, _ = divmod(remainder, 60)
-        
-        months = total_days // 30
-        days = total_days % 30
         
         parts = []
         if months > 0:
             parts.append(f"{months}mo")
-        if days > 0 or months > 0:
+        if days > 0:
             parts.append(f"{days}d")
-        if hours > 0 or (months == 0 and days < 7):
+        if hours > 0:
             parts.append(f"{hours}h")
-        if months == 0 and days == 0:
-            parts.append(f"{minutes}m")
-            
-        return f"Online {' '.join(parts)}"
+        parts.append(f"{minutes}m")
+        
+        display_parts = parts[:2]
+        uptime_text = " ".join(display_parts)
+        return f"Online {uptime_text}"
     except Exception:
-        return "Online"
+        return "Online 0m"
 
 def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details="", reply_markup=None):
     """ Sends formatted Telegram alert message to user """
