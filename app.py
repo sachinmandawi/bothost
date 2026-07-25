@@ -22,7 +22,17 @@ RUNNING_PROCESSES = {}
 
 def load_db():
     if not os.path.exists(DB_FILE):
-        return {"users": {}, "submissions": []}
+        data = {
+            "users": {
+                "Kunal.soree": {"password": "pass123", "created_at": "2026-07-25 12:00:00"},
+                "Admin": {"password": "pass123", "created_at": "2026-07-25 12:00:00"}
+            },
+            "submissions": []
+        }
+        with open(DB_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+        return data
+
     try:
         with open(DB_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -40,14 +50,12 @@ def save_db(data):
 
 def find_entry_python_file(sub_dir):
     """ Finds the main python entry file in the submission folder """
-    # Priority list
     priority_names = ['bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
     for p in priority_names:
         full_p = os.path.join(sub_dir, p)
         if os.path.exists(full_p):
             return full_p
 
-    # Search for any .py file in directory
     for root, _, files in os.walk(sub_dir):
         for f in files:
             if f.endswith('.py') and not f.startswith('__'):
@@ -59,7 +67,6 @@ def start_bot_process(sub_id):
     """ Installs requirements and starts python script in background """
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     
-    # Auto-extract project.zip if present
     zip_path = os.path.join(sub_dir, 'project.zip')
     if os.path.exists(zip_path):
         try:
@@ -75,10 +82,8 @@ def start_bot_process(sub_id):
     if not python_entry_file or not os.path.exists(python_entry_file):
         return False, "No Python script (.py) found in submission directory."
 
-    # Stop any previously running process for this submission
     stop_bot_process(sub_id)
 
-    # 1. Install requirements if present
     if os.path.exists(req_file):
         try:
             subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file],
@@ -86,7 +91,6 @@ def start_bot_process(sub_id):
         except Exception as e:
             print(f"Warning: Pip install error for {sub_id}: {e}")
 
-    # 2. Launch python script as background process writing to log file
     try:
         log_out = open(log_file_path, "a", encoding="utf-8")
         entry_basename = os.path.basename(python_entry_file)
@@ -149,6 +153,7 @@ def login():
         db = load_db()
         users = db.get('users', {})
 
+        # Strict authentication check
         if username in users:
             if users[username]['password'] == password:
                 session['user'] = username
@@ -156,13 +161,11 @@ def login():
                 flash(f'Successfully logged in as {username}', 'success')
                 return redirect(url_for('dashboard'))
             else:
-                flash('Invalid username or password', 'error')
+                flash('Invalid password. Please try again.', 'error')
                 return render_template('login.html')
-
-        session['user'] = username
-        session['is_admin'] = (username.lower() == 'admin')
-        flash(f'Logged in as {username}', 'success')
-        return redirect(url_for('dashboard'))
+        else:
+            flash('Account not found. Please Sign Up first.', 'error')
+            return render_template('login.html')
 
     return render_template('login.html')
 
@@ -250,7 +253,6 @@ def upload():
             zip_file.save(filepath)
             saved_files.append('project.zip')
             
-            # Extract immediately for inspection
             try:
                 with zipfile.ZipFile(filepath, 'r') as zip_ref:
                     zip_ref.extractall(sub_dir)
