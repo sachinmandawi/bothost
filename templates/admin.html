@@ -10,7 +10,9 @@
 <div class="panel">
   <h2>Pending & Active Bot Submissions</h2>
   {% if submissions %}
-    <div class="table-responsive">
+    
+    <!-- Desktop/Laptop Table View -->
+    <div class="table-responsive desktop-only-table">
       <table class="admin-table">
         <thead>
           <tr>
@@ -55,6 +57,54 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Mobile-Optimized Modern Cards View -->
+    <div class="admin-mobile-cards">
+      {% for sub in submissions %}
+        <div class="admin-card">
+          <div class="admin-card-header">
+            <div>
+              <span class="admin-card-id">#{{ sub.id }}</span>
+              <span class="admin-card-name">{{ sub.name }}</span>
+            </div>
+            <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+          </div>
+
+          <div class="admin-card-meta">
+            <div class="meta-item">
+              <span class="meta-label">User:</span>
+              <span class="meta-val mono">{{ sub.user }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Mode:</span>
+              <span class="meta-val mono">{{ sub.mode }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Submitted:</span>
+              <span class="meta-val mono" style="font-size: 0.75rem;">{{ sub.created_at }}</span>
+            </div>
+          </div>
+
+          <div class="admin-card-files">
+            <button class="btn-mini btn-view" style="width: 100%; text-align: center;" onclick="viewSubmissionFiles('{{ sub.id }}')">📄 Inspect Code Files</button>
+          </div>
+
+          <div class="admin-card-actions">
+            {% if sub.status == 'running' %}
+              <a href="/admin/review/{{ sub.id }}/stop" class="btn-mini btn-reject flex-1">Stop Bot</a>
+              <button class="btn-mini btn-view flex-1" onclick="viewBotLogs('{{ sub.id }}')">Live Logs</button>
+            {% else %}
+              <a href="/admin/review/{{ sub.id }}/approve" class="btn-mini btn-approve flex-1">Approve & Run</a>
+              {% if sub.status != 'rejected' %}
+                <a href="/admin/review/{{ sub.id }}/reject" class="btn-mini btn-reject">Reject</a>
+              {% endif %}
+            {% endif %}
+            <a href="/admin/review/{{ sub.id }}/delete" class="btn-mini btn-reject" onclick="return confirm('Permanently delete submission #{{ sub.id }}?')">🗑️ Delete</a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
   {% else %}
     <p class="empty-state">No submissions found in system database.</p>
   {% endif %}

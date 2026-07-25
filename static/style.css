@@ -294,15 +294,11 @@ body {
 
 .empty-state { color: var(--text-dim); font-size: 0.85rem; font-family: var(--mono); text-align: center; padding: 24px 0; }
 
-/* Responsive Table */
-.table-responsive {
-  width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  margin-top: 12px;
-}
+/* Responsive Desktop Table vs Mobile Cards */
+.desktop-only-table { display: block; }
+.admin-mobile-cards { display: none; }
 
-.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; min-width: 600px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .admin-table th {
   text-align: left;
   font-family: var(--mono);
@@ -320,15 +316,19 @@ body {
 .btn-mini {
   border: none;
   border-radius: 5px;
-  padding: 5px 10px;
-  font-size: 0.72rem;
+  padding: 6px 12px;
+  font-size: 0.75rem;
   font-family: var(--mono);
   cursor: pointer;
   text-decoration: none !important;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
   transition: all 0.15s ease;
 }
+
+.flex-1 { flex: 1; text-align: center; }
 
 .admin-table a.btn-approve,
 .btn-approve {
@@ -364,6 +364,70 @@ body {
 .btn-view:hover {
   border-color: var(--accent-dim);
   color: var(--accent) !important;
+}
+
+/* Admin Mobile Card Styles */
+.admin-card {
+  background: rgba(13, 19, 21, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.admin-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 10px;
+}
+
+.admin-card-id {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 0.9rem;
+  margin-right: 6px;
+}
+
+.admin-card-name {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+.admin-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.meta-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.meta-label { color: var(--text-dim); font-size: 0.75rem; font-family: var(--mono); }
+.meta-val { color: var(--text); }
+
+.admin-card-files {
+  margin-top: 2px;
+}
+
+.admin-card-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
 }
 
 .back-link { color: var(--text-dim); text-decoration: none; font-size: 0.85rem; font-family: var(--mono); display: inline-block; margin-bottom: 16px; }
@@ -427,13 +491,15 @@ body {
    Comprehensive Device Media Queries (Mobile, Tablet, Laptop, Desktop)
    ========================================================================== */
 
-/* Tablet & Mobile Screens (< 768px) */
+/* Mobile & Tablet Screens (< 768px) */
 @media (max-width: 768px) {
   .navbar { padding: 14px 18px; }
-  .container { padding: 24px 16px 60px; }
+  .container { padding: 20px 14px 60px; }
   .grid-2 { grid-template-columns: 1fr; gap: 20px; }
-  .panel { padding: 18px; }
+  .panel { padding: 16px; }
   .page-sub { font-size: 0.85rem; margin-bottom: 20px; }
+  .desktop-only-table { display: none; }
+  .admin-mobile-cards { display: flex; flex-direction: column; gap: 14px; }
 }
 
 /* Small Mobile Screens (< 480px) */
@@ -442,12 +508,12 @@ body {
   .brand { font-size: 0.95rem; }
   .nav-links { gap: 8px; flex-wrap: wrap; }
   .nav-links a { font-size: 0.8rem; }
-  .nav-user { font-size: 0.78rem; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
+  .nav-user { font-size: 0.78rem; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
   .btn-ghost { padding: 4px 8px; font-size: 0.78rem; }
-  .container { padding: 16px 10px 50px; }
+  .container { padding: 14px 10px 50px; }
   .terminal-card { padding: 20px 16px 24px; }
   .terminal-card h1 { font-size: 1.15rem; }
-  .panel { padding: 14px; }
+  .panel { padding: 12px; }
   .panel h2 { font-size: 0.92rem; }
   .submission-item { flex-direction: column; align-items: flex-start; gap: 8px; }
   .status { align-self: flex-start; }
