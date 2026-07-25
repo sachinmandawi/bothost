@@ -54,7 +54,7 @@ def auto_restart_approved_bots():
     AUTO_RESTART_INITIALIZED = True
 
     print("[AUTO-RESTART] Checking for active bots to resume after server boot/redeploy...")
-    time.sleep(2) # brief delay for environment initialization
+    time.sleep(2)
     all_subs = get_all_submissions()
     resumed_count = 0
     for sub in all_subs:
@@ -232,16 +232,19 @@ def save_json_db(data):
         json.dump(data, f, indent=2)
 
 def find_entry_python_file(sub_dir):
-    """ Finds the main python entry file in the submission folder """
+    """ Recursively searches for the main python entry file in the submission folder or subfolders """
     priority_names = ['bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
-    for p in priority_names:
-        full_p = os.path.join(sub_dir, p)
-        if os.path.exists(full_p):
-            return full_p
 
+    # 1. Search recursively for priority file names
+    for root, _, files in os.walk(sub_dir):
+        for p in priority_names:
+            if p in files:
+                return os.path.join(root, p)
+
+    # 2. Search recursively for any valid .py file
     for root, _, files in os.walk(sub_dir):
         for f in files:
-            if f.endswith('.py') and not f.startswith('__'):
+            if f.endswith('.py') and not f.startswith('__') and f != 'setup.py':
                 return os.path.join(root, f)
 
     return None
@@ -250,6 +253,7 @@ def start_bot_process(sub_id):
     """ Installs requirements and starts python script in background """
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     
+    # Auto-extract project.zip if present
     zip_path = os.path.join(sub_dir, 'project.zip')
     if os.path.exists(zip_path):
         try:
@@ -259,11 +263,17 @@ def start_bot_process(sub_id):
             print(f"Warning extracting zip: {e}")
 
     python_entry_file = find_entry_python_file(sub_dir)
-    req_file = os.path.join(sub_dir, 'requirements.txt')
     log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
 
     if not python_entry_file or not os.path.exists(python_entry_file):
         return False, "No Python script (.py) found in submission directory."
+
+    entry_dir = os.path.dirname(python_entry_file)
+
+    # Search for requirements.txt in entry_dir or sub_dir
+    req_file = os.path.join(entry_dir, 'requirements.txt')
+    if not os.path.exists(req_file):
+        req_file = os.path.join(sub_dir, 'requirements.txt')
 
     stop_bot_process(sub_id)
 
@@ -282,7 +292,7 @@ def start_bot_process(sub_id):
 
         proc = subprocess.Popen(
             [sys.executable, python_entry_file],
-            cwd=os.path.dirname(python_entry_file),
+            cwd=entry_dir,
             stdout=log_out,
             stderr=log_out,
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
