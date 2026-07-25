@@ -259,7 +259,7 @@ def check_and_auto_deploy_github_repos(sub):
         print(f"[AUTO-DEPLOY] Exception checking repo for #{sub_id}: {e}")
 
 def continuous_bot_keeper_daemon():
-    """ Continuous background daemon that ensures all approved & running bots stay online permanently and auto-deploys GitHub updates """
+    """ Continuous background daemon that ensures all running bots stay online permanently and auto-deploys GitHub updates """
     print("[DAEMON] Starting 24/7 Continuous Bot Health & Auto-Deploy Worker...")
     while True:
         try:
@@ -269,14 +269,15 @@ def continuous_bot_keeper_daemon():
                 sub_id = sub.get('id')
                 status = sub.get('status')
                 
-                # Check Auto-Deploy GitHub Repos
+                # Check Auto-Deploy GitHub Repos if running
                 if status == 'running' and sub.get('repo_url'):
                     check_and_auto_deploy_github_repos(sub)
 
-                if status in ('running', 'approved'):
+                # ONLY auto-resume if status is explicitly 'running' (Do NOT auto-resume if 'stopped' or 'rejected')
+                if status == 'running':
                     proc = RUNNING_PROCESSES.get(sub_id)
                     if proc is None or proc.poll() is not None:
-                        print(f"[DAEMON] Auto-resuming bot #{sub_id} ({sub.get('name')})...")
+                        print(f"[DAEMON] Auto-resuming crashed bot #{sub_id} ({sub.get('name')})...")
                         success, msg = start_bot_process(sub_id)
                         if success:
                             update_submission_status(sub_id, 'running')
@@ -438,14 +439,13 @@ def add_submission(sub_dict):
     save_json_db(db)
 
 def update_submission_status(sub_id, new_status, started_at=None):
-    """ Update submission status and started_at timestamp """
-    update_fields = {"status": new_status}
-    if started_at:
-        update_fields["started_at"] = started_at
-
+    """ Update submission status and started_at timestamp in both MongoDB and db.json """
     if mongo_db is not None:
         try:
-            mongo_db.submissions.update_one({"id": sub_id}, {"$set": {"status": new_status, "started_at": started_at or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}})
+            update_data = {"status": new_status}
+            if started_at:
+                update_data["started_at"] = started_at
+            mongo_db.submissions.update_one({"id": sub_id}, {"$set": update_data})
         except Exception as e:
             print("MongoDB update_submission_status error:", e)
 
@@ -683,6 +683,10 @@ def reload_bot_process_zero_downtime(sub_id):
         if old_proc and old_proc.poll() is None:
             try:
                 old_proc.terminate()
+                try:
+                    old_proc.wait(timeout=1.5)
+                except Exception:
+                    old_proc.kill()
             except Exception:
                 pass
 
@@ -693,13 +697,19 @@ def reload_bot_process_zero_downtime(sub_id):
         return False, f"Hot-reload error: {e}"
 
 def stop_bot_process(sub_id):
-    """ Terminates running bot process if active """
+    """ Forcefully terminates running bot process if active and prevents zombie processes """
     proc = RUNNING_PROCESSES.get(sub_id)
-    if proc and proc.poll() is None:
+    if proc:
         try:
-            proc.terminate()
-            proc.wait(timeout=3)
-        except Exception:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.5)
+                except Exception:
+                    proc.kill()
+                    proc.wait(timeout=1.0)
+        except Exception as e:
+            print(f"Error terminating process #{sub_id}: {e}")
             try:
                 proc.kill()
             except Exception:
@@ -807,8 +817,8 @@ def handle_telegram_start_command_action(chat_id, sub_id, message_id=None):
         edit_telegram_message_text(chat_id, message_id, msg_text, reply_markup)
 
 def handle_telegram_stop_command(chat_id, sub_id, message_id=None):
-    stop_bot_process(sub_id)
     update_submission_status(sub_id, 'stopped')
+    stop_bot_process(sub_id)
     send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"⏹ *Bot #`{sub_id}` stopped safely.* Status: 🔴 STOPPED")
 
     # Dynamic Telegram Keyboard Update
@@ -1046,8 +1056,8 @@ def api_user_submission_action(sub_id, action):
             return jsonify({"error": f"Failed to hot-reload bot: {msg}"}), 400
 
     elif action == 'stop':
-        stop_bot_process(sub_id)
         update_submission_status(sub_id, 'stopped')
+        stop_bot_process(sub_id)
         return jsonify({"success": True, "message": f"⏹ Bot #{sub_id} stopped safely."})
 
     return jsonify({"error": "Invalid action"}), 400
@@ -1088,8 +1098,8 @@ def api_user_mass_action(action):
     elif action == 'stop_all':
         for s in user_subs:
             if s.get('status') == 'running':
-                stop_bot_process(s['id'])
                 update_submission_status(s['id'], 'stopped')
+                stop_bot_process(s['id'])
                 count += 1
         return jsonify({"success": True, "message": f"⏹ Stopped {count} active bots safely."})
 
@@ -1367,12 +1377,12 @@ def review_action(sub_id, action):
                 if not success:
                     update_submission_status(sub_id, 'approved')
             elif action in ('reject', 'rejected'):
-                stop_bot_process(sub_id)
                 update_submission_status(sub_id, 'rejected')
+                stop_bot_process(sub_id)
                 msg = f"Submission #{sub_id} marked as REJECTED."
             elif action == 'stop':
+                update_submission_status(sub_id, 'stopped')
                 stop_bot_process(sub_id)
-                update_submission_status(sub_id, 'approved')
                 msg = f"Bot #{sub_id} process stopped."
             elif action == 'delete':
                 delete_submission_permanently(sub_id)
