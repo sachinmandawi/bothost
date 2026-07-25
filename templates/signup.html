@@ -1,32 +1,57 @@
 {% extends "base.html" %}
 
-{% block title %}Sign up — BotHost{% endblock %}
+{% block title %}Create Account — BotHost{% endblock %}
 
 {% block content %}
 <div class="auth-wrap">
   <div class="terminal-card">
-    <div class="terminal-bar"><span></span><span></span><span></span></div>
-    <h1>signup.sh</h1>
-    <p class="sub">Get a free slot to host your bot</p>
+    <div class="terminal-bar">
+      <span></span><span></span><span></span>
+    </div>
+    <h1>Create Your Account</h1>
+    <p class="sub">Start deploying 24/7 continuous Telegram bots</p>
+
     <form method="POST" action="/signup" class="stack-form">
-      <label for="username">username</label>
-      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      <label for="username">USERNAME *</label>
+      <input type="text" id="username" name="username" placeholder="choose username" required autocomplete="username">
 
-      <label for="password">password</label>
+      <label for="password">PASSWORD *</label>
       <div class="password-wrap">
-        <input type="password" id="password" name="password" autocomplete="new-password" required minlength="6">
-        <button type="button" class="toggle-password" data-target="password" title="Toggle Password Visibility">👁️</button>
+        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="new-password">
+        <button type="button" class="toggle-password" onclick="togglePasswordVisibility('password', this)" title="Show/Hide Password">
+          👁️
+        </button>
       </div>
 
-      <label for="confirm">confirm password</label>
+      <label for="confirm">CONFIRM PASSWORD *</label>
       <div class="password-wrap">
-        <input type="password" id="confirm" name="confirm" autocomplete="new-password" required minlength="6">
-        <button type="button" class="toggle-password" data-target="confirm" title="Toggle Password Visibility">👁️</button>
+        <input type="password" id="confirm" name="confirm" placeholder="••••••••" required autocomplete="new-password">
+        <button type="button" class="toggle-password" onclick="togglePasswordVisibility('confirm', this)" title="Show/Hide Password">
+          👁️
+        </button>
       </div>
 
-      <button type="submit" class="btn-primary">$ create account</button>
+      <button type="submit" class="btn-primary">Create Account</button>
     </form>
-    <p class="switch-link">Already have an account? <a href="/login">Log in</a></p>
+
+    <div class="switch-link">
+      Already registered? <a href="/login">Sign in</a>
+    </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === "password") {
+    input.type = "text";
+    btn.innerHTML = "🔒";
+  } else {
+    input.type = "password";
+    btn.innerHTML = "👁️";
+  }
+}
+</script>
 {% endblock %}

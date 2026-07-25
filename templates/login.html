@@ -1,26 +1,49 @@
 {% extends "base.html" %}
 
-{% block title %}Log in — BotHost{% endblock %}
+{% block title %}Sign In — BotHost{% endblock %}
 
 {% block content %}
 <div class="auth-wrap">
   <div class="terminal-card">
-    <div class="terminal-bar"><span></span><span></span><span></span></div>
-    <h1>login.sh</h1>
-    <p class="sub">Access your bot deployments</p>
-    <form method="POST" action="/login" class="stack-form">
-      <label for="username">username</label>
-      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+    <div class="terminal-bar">
+      <span></span><span></span><span></span>
+    </div>
+    <h1>Welcome Back</h1>
+    <p class="sub">Sign in to access your 24/7 bot deployments</p>
 
-      <label for="password">password</label>
+    <form method="POST" action="/login" class="stack-form">
+      <label for="username">USERNAME</label>
+      <input type="text" id="username" name="username" placeholder="enter username" required autocomplete="username">
+
+      <label for="password">PASSWORD</label>
       <div class="password-wrap">
-        <input type="password" id="password" name="password" autocomplete="current-password" required>
-        <button type="button" class="toggle-password" data-target="password" title="Toggle Password Visibility">👁️</button>
+        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+        <button type="button" class="toggle-password" onclick="togglePasswordVisibility('password', this)" title="Show/Hide Password">
+          👁️
+        </button>
       </div>
 
-      <button type="submit" class="btn-primary">$ login</button>
+      <button type="submit" class="btn-primary">Sign In</button>
     </form>
-    <p class="switch-link">No account? <a href="/signup">Create one</a></p>
+
+    <div class="switch-link">
+      Don't have an account? <a href="/signup">Create one</a>
+    </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === "password") {
+    input.type = "text";
+    btn.innerHTML = "🔒";
+  } else {
+    input.type = "password";
+    btn.innerHTML = "👁️";
+  }
+}
+</script>
 {% endblock %}
