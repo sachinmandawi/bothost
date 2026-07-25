@@ -73,14 +73,14 @@ def continuous_bot_keeper_daemon():
     print("[DAEMON] Starting 24/7 Continuous Bot Health & Auto-Resume Worker...")
     while True:
         try:
-            time.sleep(10)
+            time.sleep(8)
             all_subs = get_all_submissions()
             for sub in all_subs:
                 sub_id = sub.get('id')
                 status = sub.get('status')
                 
-                # Auto-resume any bot marked as 'running' or 'approved' if its subprocess is dead/missing
-                if status in ('running', 'approved'):
+                # Auto-resume any bot marked as 'running', 'approved', or previously active 'crashed' with repo_url
+                if status in ('running', 'approved', 'crashed'):
                     proc = RUNNING_PROCESSES.get(sub_id)
                     if proc is None or proc.poll() is not None:
                         print(f"[DAEMON] Auto-resuming bot #{sub_id} ({sub.get('name')})...")
@@ -95,19 +95,8 @@ def continuous_bot_keeper_daemon():
         time.sleep(20)
 
 def check_and_update_bot_statuses():
-    """ Monitors background processes and ensures offline bots get auto-resumed by daemon """
-    all_subs = get_all_submissions()
-    for sub in all_subs:
-        sub_id = sub['id']
-        current_status = sub.get('status')
-        proc = RUNNING_PROCESSES.get(sub_id)
-
-        if current_status == 'running':
-            if proc is None or proc.poll() is not None:
-                # Attempt immediate restart
-                success, msg = start_bot_process(sub_id)
-                if success:
-                    continue
+    """ Monitors background processes """
+    pass
 
 def get_user(username):
     """ Fetch user dict from MongoDB or db.json """
