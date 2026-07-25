@@ -3,6 +3,87 @@
 {% block title %}Dashboard - BotHost{% endblock %}
 
 {% block content %}
+<style>
+/* Sleek 3-Dot Action Dropdown Styling */
+.action-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.action-dot-btn {
+    background: rgba(30, 41, 59, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #f1f5f9;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.2rem;
+    transition: all 0.2s ease;
+}
+
+.action-dot-btn:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: #38bdf8;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+}
+
+.dropdown-menu-card {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 42px;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    width: 180px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    padding: 0.4rem 0;
+    backdrop-filter: blur(12px);
+}
+
+.dropdown-menu-card.show {
+    display: block;
+    animation: fadeIn 0.15s ease-out;
+}
+
+.dropdown-item-btn {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 0.6rem 1rem;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.dropdown-item-btn:hover {
+    background: rgba(56, 189, 248, 0.1);
+    color: #38bdf8;
+}
+
+.dropdown-item-btn.danger:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.3rem 0;
+}
+</style>
+
 <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
     <div>
         <h2 style="font-size: 1.8rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">⚡ Control Center & Dashboard</h2>
@@ -55,7 +136,7 @@
 
 <!-- ⚡ MASS MULTI-BOT CONTROLLER TOP BAR -->
 {% if submissions %}
-<div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 1.5rem; padding: 1rem 1.25rem;">
+<div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 1.5rem; padding: 0.9rem 1.25rem;">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem;">
             <span style="font-size: 1.2rem;">⚡</span>
@@ -106,7 +187,7 @@
                         <th>Status</th>
                         <th>Type</th>
                         <th>Created At</th>
-                        <th style="text-align: right;">Actions</th>
+                        <th style="text-align: right;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -150,31 +231,38 @@
                             {{ sub.created_at }}
                         </td>
                         <td style="text-align: right;">
-                            <div style="display: flex; gap: 0.4rem; justify-content: flex-end; flex-wrap: wrap;">
-                                {% if sub.status == 'running' %}
-                                    <button class="btn btn-secondary" onclick="controlSingleBot('{{ sub.id }}', 'restart')" style="padding: 0.35rem 0.65rem; font-size: 0.78rem; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8;" title="Hot-Reload with 0-Downtime">
-                                        ⚡ Hot-Reload
-                                    </button>
-                                    <button class="btn btn-secondary" onclick="controlSingleBot('{{ sub.id }}', 'stop')" style="padding: 0.35rem 0.65rem; font-size: 0.78rem; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171;" title="Stop Bot Process">
-                                        ⏹ Stop
-                                    </button>
-                                {% else %}
-                                    <button class="btn btn-secondary" onclick="controlSingleBot('{{ sub.id }}', 'start')" style="padding: 0.35rem 0.65rem; font-size: 0.78rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399;" title="Start Bot Process">
-                                        ▶️ Start Bot
-                                    </button>
-                                {% endif %}
+                            <!-- Clean 3-Dot Dropdown Action Menu -->
+                            <div class="action-dropdown">
+                                <button class="action-dot-btn" onclick="toggleDropdown(event, 'dropdown-{{ sub.id }}')">
+                                    ⋮
+                                </button>
+                                <div id="dropdown-{{ sub.id }}" class="dropdown-menu-card">
+                                    {% if sub.status == 'running' %}
+                                        <button class="dropdown-item-btn" onclick="controlSingleBot('{{ sub.id }}', 'restart')">
+                                            ⚡ Hot-Reload (0-Downtime)
+                                        </button>
+                                        <button class="dropdown-item-btn" onclick="controlSingleBot('{{ sub.id }}', 'stop')">
+                                            ⏹ Stop Bot
+                                        </button>
+                                    {% else %}
+                                        <button class="dropdown-item-btn" onclick="controlSingleBot('{{ sub.id }}', 'start')">
+                                            ▶️ Start Bot
+                                        </button>
+                                    {% endif %}
 
-                                <button class="btn btn-secondary" onclick="openLogsModal('{{ sub.id }}')" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
-                                    📄 Logs
-                                </button>
-                                
-                                <button class="btn btn-secondary" onclick="openEnvModal('{{ sub.id }}')" style="padding: 0.35rem 0.65rem; font-size: 0.78rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399;">
-                                    ⚙️ Secrets
-                                </button>
-                                
-                                <a href="{{ url_for('delete_submission_user', sub_id=sub.id) }}" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this bot submission permanently?');" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
-                                    🗑️
-                                </a>
+                                    <button class="dropdown-item-btn" onclick="openLogsModal('{{ sub.id }}')">
+                                        📄 Live Logs
+                                    </button>
+                                    <button class="dropdown-item-btn" onclick="openEnvModal('{{ sub.id }}')">
+                                        ⚙️ Secrets (.env)
+                                    </button>
+                                    
+                                    <div class="dropdown-divider"></div>
+                                    
+                                    <button class="dropdown-item-btn danger" onclick="confirmDeleteBot('{{ sub.id }}')">
+                                        🗑️ Delete Bot
+                                    </button>
+                                </div>
                             </div>
                         </td>
                     </tr>
@@ -352,6 +440,23 @@
 </div>
 
 <script>
+// Toggle 3-Dot Dropdown Menu
+function toggleDropdown(event, menuId) {
+    event.stopPropagation();
+    const allMenus = document.querySelectorAll('.dropdown-menu-card');
+    allMenus.forEach(m => {
+        if (m.id !== menuId) m.classList.remove('show');
+    });
+    const target = document.getElementById(menuId);
+    if (target) target.classList.toggle('show');
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', function() {
+    const allMenus = document.querySelectorAll('.dropdown-menu-card');
+    allMenus.forEach(m => m.classList.remove('show'));
+});
+
 function openUploadModal() {
     document.getElementById('uploadModal').style.display = 'flex';
 }
@@ -383,6 +488,12 @@ function controlSingleBot(subId, action) {
         }
     })
     .catch(err => alert('Network error: ' + err));
+}
+
+function confirmDeleteBot(subId) {
+    if (confirm('Are you sure you want to delete this bot submission permanently?')) {
+        window.location.href = '/submission/' + subId + '/delete';
+    }
 }
 
 // Mass Multi-Bot Action
