@@ -1,4 +1,25 @@
 {
-  "users": {},
+  "users": {
+    "sachinmandawi": {
+      "password": "sachinmandawi",
+      "is_admin": true,
+      "created_at": "2026-07-25 15:23:09"
+    },
+    "audit_user_99": {
+      "password": "pass12345",
+      "is_admin": false,
+      "created_at": "2026-07-25 14:53:43"
+    },
+    "audit_user_1784971496": {
+      "password": "pass12345",
+      "is_admin": false,
+      "created_at": "2026-07-25 14:54:57"
+    },
+    "audit_usr_1784973191": {
+      "password": "SecurePass123",
+      "is_admin": false,
+      "created_at": "2026-07-25 15:23:12"
+    }
+  },
   "submissions": []
 }
