@@ -56,6 +56,28 @@ if HAS_PYMONGO:
 # In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
 RUNNING_PROCESSES = {}
 
+def get_bot_uptime_str(started_at_str):
+    """ Calculates human-readable uptime string from start timestamp """
+    if not started_at_str:
+        return "Online"
+    try:
+        started_dt = datetime.datetime.strptime(started_at_str, "%Y-%m-%d %H:%M:%S")
+        now_dt = datetime.datetime.now()
+        diff = now_dt - started_dt
+        days = diff.days
+        hours, remainder = divmod(diff.seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days}d")
+        if hours > 0 or days > 0:
+            parts.append(f"{hours}h")
+        parts.append(f"{minutes}m")
+        return f"Online {' '.join(parts)}"
+    except Exception:
+        return "Online"
+
 def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details="", reply_markup=None):
     """ Sends formatted Telegram alert message to user """
     if not chat_id or not ALERT_BOT_TOKEN:
@@ -158,12 +180,10 @@ def check_and_update_bot_statuses():
 
         if current_status == 'running':
             if proc is None or proc.poll() is not None:
-                # Attempt immediate restart
                 success, msg = start_bot_process(sub_id)
                 if success:
                     continue
                 
-                # If bot process crashed and fails restart
                 update_submission_status(sub_id, 'crashed')
                 sub_owner = sub.get('user')
                 owner_data = get_user(sub_owner) if sub_owner else None
@@ -254,12 +274,19 @@ def get_all_submissions():
         try:
             subs = list(mongo_db.submissions.find({}, {"_id": 0}))
             if subs:
+                for s in subs:
+                    if s.get('status') == 'running' and s.get('started_at'):
+                        s['uptime_str'] = get_bot_uptime_str(s['started_at'])
                 return subs
         except Exception as e:
             print("MongoDB get_all_submissions error:", e)
 
     db = load_json_db()
-    return db.get("submissions", [])
+    subs = db.get("submissions", [])
+    for s in subs:
+        if s.get('status') == 'running' and s.get('started_at'):
+            s['uptime_str'] = get_bot_uptime_str(s['started_at'])
+    return subs
 
 def add_submission(sub_dict):
     """ Add new submission to MongoDB and db.json """
@@ -273,11 +300,15 @@ def add_submission(sub_dict):
     db["submissions"].append(sub_dict)
     save_json_db(db)
 
-def update_submission_status(sub_id, new_status):
-    """ Update submission status in MongoDB and db.json """
+def update_submission_status(sub_id, new_status, started_at=None):
+    """ Update submission status and started_at timestamp """
+    update_fields = {"status": new_status}
+    if started_at:
+        update_fields["started_at"] = started_at
+
     if mongo_db is not None:
         try:
-            mongo_db.submissions.update_one({"id": sub_id}, {"$set": {"status": new_status}})
+            mongo_db.submissions.update_one({"id": sub_id}, {"$set": update_fields})
         except Exception as e:
             print("MongoDB update_submission_status error:", e)
 
@@ -285,8 +316,32 @@ def update_submission_status(sub_id, new_status):
     for s in db.get("submissions", []):
         if s["id"] == sub_id:
             s["status"] = new_status
+            if started_at:
+                s["started_at"] = started_at
             break
     save_json_db(db)
+
+def update_submission_env_vars(sub_id, new_env_vars):
+    """ Update environment variables for submission """
+    if mongo_db is not None:
+        try:
+            mongo_db.submissions.update_one({"id": sub_id}, {"$set": {"env_vars": new_env_vars}})
+        except Exception as e:
+            print("MongoDB update_submission_env_vars error:", e)
+
+    db = load_json_db()
+    for s in db.get("submissions", []):
+        if s["id"] == sub_id:
+            s["env_vars"] = new_env_vars
+            break
+    save_json_db(db)
+
+    # Write to local .env file in submission directory
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    if os.path.exists(sub_dir):
+        env_file = os.path.join(sub_dir, '.env')
+        with open(env_file, 'w', encoding='utf-8') as ef:
+            ef.write(new_env_vars)
 
 def delete_submission_permanently(sub_id):
     """ Permanently delete submission record and uploaded files """
@@ -429,7 +484,8 @@ def start_bot_process(sub_id):
     try:
         log_out = open(log_file_path, "a", encoding="utf-8")
         entry_basename = os.path.basename(python_entry_file)
-        log_out.write(f"\n--- BOT ({entry_basename}) STARTED AT {datetime.datetime.now()} ---\n")
+        start_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_out.write(f"\n--- BOT ({entry_basename}) STARTED AT {start_time_str} ---\n")
         log_out.flush()
 
         proc_env = os.environ.copy()
@@ -444,6 +500,7 @@ def start_bot_process(sub_id):
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
         )
         RUNNING_PROCESSES[sub_id] = proc
+        update_submission_status(sub_id, 'running', started_at=start_time_str)
         return True, f"Bot ({entry_basename}) started successfully (PID: {proc.pid})"
     except Exception as e:
         return False, f"Failed to start bot process: {str(e)}"
@@ -487,7 +544,8 @@ def handle_telegram_status_command(chat_id, user_info):
     keyboard_buttons = []
 
     for idx, s in enumerate(user_subs, 1):
-        status_icon = "🟢 RUNNING" if s.get('status') == 'running' else ("🔴 CRASHED" if s.get('status') == 'crashed' else f"🟡 {s.get('status', '').upper()}")
+        uptime_info = f" ({s.get('uptime_str', 'Online')})" if s.get('status') == 'running' else ""
+        status_icon = f"🟢 RUNNING{uptime_info}" if s.get('status') == 'running' else ("🔴 CRASHED" if s.get('status') == 'crashed' else f"🟡 {s.get('status', '').upper()}")
         msg += f"*{idx}. {s.get('name', 'Bot')}*\n"
         msg += f"   🆔 ID: `{s['id']}` | Status: {status_icon}\n"
         msg += f"   ⏱ Created: `{s.get('created_at', '')}`\n\n"
@@ -906,7 +964,6 @@ def review_action(sub_id, action):
     for sub in all_subs:
         if sub['id'] == sub_id:
             if action in ('approve', 'approved'):
-                update_submission_status(sub_id, 'running')
                 success, msg = start_bot_process(sub_id)
                 if not success:
                     update_submission_status(sub_id, 'approved')
@@ -927,6 +984,50 @@ def review_action(sub_id, action):
     if updated:
         flash(msg or f'Submission #{sub_id} marked as {action}.', 'success')
     return redirect(url_for('admin'))
+
+@app.route('/api/submissions/<sub_id>/env', methods=['GET', 'POST'])
+def api_submission_env(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    all_subs = get_all_submissions()
+    sub_data = next((s for s in all_subs if s['id'] == sub_id), None)
+    if not sub_data:
+        return jsonify({"error": "Submission not found"}), 404
+
+    # Check permission
+    if sub_data['user'] != session['user'] and not session.get('is_admin'):
+        return jsonify({"error": "Forbidden"}), 403
+
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        new_env = data.get('env_vars', '').strip()
+        update_submission_env_vars(sub_id, new_env)
+
+        # Auto-restart bot if it's currently running
+        restarted = False
+        if sub_data.get('status') == 'running':
+            stop_bot_process(sub_id)
+            success, _ = start_bot_process(sub_id)
+            restarted = success
+
+        return jsonify({
+            "success": True,
+            "message": "Environment variables updated & bot restarted successfully!" if restarted else "Environment variables updated successfully!"
+        })
+
+    # GET method
+    env_vars = sub_data.get('env_vars', '')
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    env_file = os.path.join(sub_dir, '.env')
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, 'r', encoding='utf-8', errors='ignore') as f:
+                env_vars = f.read()
+        except Exception:
+            pass
+
+    return jsonify({"env_vars": env_vars})
 
 @app.route('/api/submissions/<sub_id>/files')
 def api_submission_files(sub_id):

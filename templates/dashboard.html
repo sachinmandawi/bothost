@@ -36,7 +36,7 @@
     {% else %}
       <div style="background: rgba(217, 164, 65, 0.08); border: 1px solid rgba(217,164,65,0.35); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
         <span style="color: var(--warn); font-family: var(--mono); font-size: 0.85rem; font-weight: 600;">⚠️ Not Connected</span>
-        <span class="tiny" style="color: var(--text-dim); margin-top: 4px;">Connect Telegram to receive instant crash notifications.</span>
+        <span class="tiny" style="color: var(--text-dim); margin-top: 4px;">Connect Telegram to receive instant crash notifications & remote commands.</span>
       </div>
     {% endif %}
 
@@ -63,16 +63,30 @@
     <ul class="submission-list">
       {% for sub in submissions %}
         <li class="submission-item">
-          <div>
-            <span class="mono" style="font-weight: 600;">{{ sub.name }}</span>
-            <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
-            <div style="margin-top: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-              {% if sub.status == 'crashed' %}
-                <button class="btn-mini btn-reject" style="padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">⚠️ View Crash Log</button>
-              {% elif sub.status == 'running' %}
-                <button class="btn-mini btn-view" style="padding: 3px 8px; font-size: 0.72rem;" onclick="viewUserLogs('{{ sub.id }}')">📄 View Live Logs</button>
+          <div style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="mono" style="font-weight: 600; font-size: 0.95rem;">{{ sub.name }}</span>
+              {% if sub.status == 'running' %}
+                <span class="status status-running" style="font-size: 0.68rem; padding: 2px 7px;">
+                  ⚡ {{ sub.uptime_str if sub.uptime_str else 'Online' }}
+                </span>
               {% endif %}
-              <a href="/submission/{{ sub.id }}/delete" class="btn-mini btn-reject" style="padding: 3px 8px; font-size: 0.72rem;" onclick="return confirm('Are you sure you want to delete this submission?')">🗑️ Delete</a>
+            </div>
+            <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
+
+            <!-- Action Buttons for User -->
+            <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button class="btn-mini btn-ghost" style="padding: 4px 10px; font-size: 0.75rem; border-color: var(--border); color: var(--accent);" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
+                ⚙️ Secrets (.env)
+              </button>
+              
+              {% if sub.status == 'crashed' %}
+                <button class="btn-mini btn-reject" style="padding: 4px 10px; font-size: 0.75rem;" onclick="viewUserLogs('{{ sub.id }}')">⚠️ View Crash Log</button>
+              {% elif sub.status == 'running' %}
+                <button class="btn-mini btn-view" style="padding: 4px 10px; font-size: 0.75rem;" onclick="viewUserLogs('{{ sub.id }}')">📄 View Live Logs</button>
+              {% endif %}
+
+              <a href="/submission/{{ sub.id }}/delete" class="btn-mini btn-reject" style="padding: 4px 10px; font-size: 0.75rem;" onclick="return confirm('Are you sure you want to delete this submission?')">🗑️ Delete</a>
             </div>
           </div>
           <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
@@ -82,6 +96,31 @@
   {% else %}
     <p class="empty-state">No submissions yet. Enter your GitHub repo URL to deploy your first bot.</p>
   {% endif %}
+</div>
+
+<!-- Modal for Interactive .env Secrets Manager -->
+<div id="envSecretsModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 600px;">
+    <div class="modal-header">
+      <h3 id="envSecretsTitle">⚙️ Edit Environment Secrets (.env)</h3>
+      <button class="modal-close" onclick="closeEnvSecretsModal()">&times;</button>
+    </div>
+    <div class="modal-content-area">
+      <p style="color: var(--text-dim); font-size: 0.82rem; margin-top: 0;">Add or edit secret variables for this bot (`KEY=VALUE` format). Click Save to automatically update and restart the bot.</p>
+      
+      <div class="stack-form">
+        <label for="modal_env_vars">ENVIRONMENT VARIABLES (.env)</label>
+        <textarea id="modal_env_vars" rows="8" style="background: #070a0b; border: 1px solid var(--border); border-radius: 6px; padding: 12px; color: #3ddc84; font-family: var(--mono); font-size: 0.88rem; width: 100%; outline: none;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
+        <input type="hidden" id="modal_sub_id">
+        
+        <div style="display: flex; gap: 10px; margin-top: 14px;">
+          <button type="button" class="btn-primary" style="flex: 1; margin-top: 0;" onclick="saveEnvSecrets()">💾 Save & Auto-Restart Bot</button>
+          <button type="button" class="btn-ghost" onclick="closeEnvSecretsModal()">Cancel</button>
+        </div>
+        <p id="envSaveMsg" class="hint" style="text-align: center; margin-top: 8px;"></p>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal for User to inspect logs & crash trace -->
@@ -100,6 +139,66 @@
 
 {% block scripts %}
 <script>
+function openEnvSecretsModal(subId, subName) {
+  const modal = document.getElementById('envSecretsModal');
+  const title = document.getElementById('envSecretsTitle');
+  const textarea = document.getElementById('modal_env_vars');
+  const subInput = document.getElementById('modal_sub_id');
+  const msg = document.getElementById('envSaveMsg');
+
+  title.innerText = `⚙️ Secrets (.env) — ${subName}`;
+  subInput.value = subId;
+  textarea.value = 'Loading secrets...';
+  msg.innerText = '';
+  modal.classList.add('active');
+
+  fetch(`/api/submissions/${subId}/env`)
+    .then(res => res.json())
+    .then(data => {
+      textarea.value = data.env_vars || '';
+    })
+    .catch(err => {
+      textarea.value = `# Error loading secrets: ${err}`;
+    });
+}
+
+function saveEnvSecrets() {
+  const subId = document.getElementById('modal_sub_id').value;
+  const envVars = document.getElementById('modal_env_vars').value;
+  const msg = document.getElementById('envSaveMsg');
+
+  msg.style.color = 'var(--text-dim)';
+  msg.innerText = 'Saving secrets & restarting bot...';
+
+  fetch(`/api/submissions/${subId}/env`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ env_vars: envVars })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      msg.style.color = 'var(--accent)';
+      msg.innerText = `✅ ${data.message}`;
+      setTimeout(() => {
+        closeEnvSecretsModal();
+        window.location.reload();
+      }, 1200);
+    } else {
+      msg.style.color = 'var(--danger)';
+      msg.innerText = `❌ Error: ${data.error}`;
+    }
+  })
+  .catch(err => {
+    msg.style.color = 'var(--danger)';
+    msg.innerText = `❌ Save failed: ${err}`;
+  });
+}
+
+function closeEnvSecretsModal() {
+  document.getElementById('envSecretsModal').classList.remove('active');
+}
+
 function viewUserLogs(subId) {
   const modal = document.getElementById('userLogModal');
   const title = document.getElementById('userLogTitle');

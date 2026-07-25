@@ -21,7 +21,7 @@
             <th>Mode</th>
             <th>Files</th>
             <th>Submitted At</th>
-            <th>Status</th>
+            <th>Status / Uptime</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -37,9 +37,16 @@
               <td class="mono" style="font-size: 0.78rem;">{{ sub.created_at }}</td>
               <td>
                 <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+                {% if sub.status == 'running' and sub.uptime_str %}
+                  <span class="status status-running" style="font-size: 0.65rem; margin-top: 4px; display: inline-block;">
+                    ⚡ {{ sub.uptime_str }}
+                  </span>
+                {% endif %}
               </td>
               <td>
                 <div class="actions">
+                  <button class="btn-mini btn-ghost" style="border-color: var(--border); color: var(--accent);" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">⚙️ Secrets</button>
+                  
                   {% if sub.status == 'running' %}
                     <a href="/admin/review/{{ sub.id }}/stop" class="btn-mini btn-reject">Stop Bot</a>
                     <button class="btn-mini btn-view" onclick="viewBotLogs('{{ sub.id }}')">Logs</button>
@@ -67,7 +74,14 @@
               <span class="admin-card-id">#{{ sub.id }}</span>
               <span class="admin-card-name">{{ sub.name }}</span>
             </div>
-            <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+            <div>
+              <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+              {% if sub.status == 'running' and sub.uptime_str %}
+                <span class="status status-running" style="font-size: 0.65rem; margin-top: 4px; display: block;">
+                  ⚡ {{ sub.uptime_str }}
+                </span>
+              {% endif %}
+            </div>
           </div>
 
           <div class="admin-card-meta">
@@ -85,8 +99,9 @@
             </div>
           </div>
 
-          <div class="admin-card-files">
-            <button class="btn-mini btn-view" style="width: 100%; text-align: center;" onclick="viewSubmissionFiles('{{ sub.id }}')">📄 Inspect Code Files</button>
+          <div class="admin-card-files" style="display: flex; gap: 8px;">
+            <button class="btn-mini btn-view" style="flex: 1; text-align: center;" onclick="viewSubmissionFiles('{{ sub.id }}')">📄 Inspect Code</button>
+            <button class="btn-mini btn-ghost" style="flex: 1; text-align: center; border-color: var(--border); color: var(--accent);" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">⚙️ Secrets (.env)</button>
           </div>
 
           <div class="admin-card-actions">
@@ -110,6 +125,31 @@
   {% endif %}
 </div>
 
+<!-- Modal for Interactive .env Secrets Manager -->
+<div id="envSecretsModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 600px;">
+    <div class="modal-header">
+      <h3 id="envSecretsTitle">⚙️ Edit Environment Secrets (.env)</h3>
+      <button class="modal-close" onclick="closeEnvSecretsModal()">&times;</button>
+    </div>
+    <div class="modal-content-area">
+      <p style="color: var(--text-dim); font-size: 0.82rem; margin-top: 0;">Add or edit secret variables for this bot (`KEY=VALUE` format). Click Save to automatically update and restart the bot.</p>
+      
+      <div class="stack-form">
+        <label for="modal_env_vars">ENVIRONMENT VARIABLES (.env)</label>
+        <textarea id="modal_env_vars" rows="8" style="background: #070a0b; border: 1px solid var(--border); border-radius: 6px; padding: 12px; color: #3ddc84; font-family: var(--mono); font-size: 0.88rem; width: 100%; outline: none;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
+        <input type="hidden" id="modal_sub_id">
+        
+        <div style="display: flex; gap: 10px; margin-top: 14px;">
+          <button type="button" class="btn-primary" style="flex: 1; margin-top: 0;" onclick="saveEnvSecrets()">💾 Save & Auto-Restart Bot</button>
+          <button type="button" class="btn-ghost" onclick="closeEnvSecretsModal()">Cancel</button>
+        </div>
+        <p id="envSaveMsg" class="hint" style="text-align: center; margin-top: 8px;"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal for inspecting code files & logs -->
 <div id="fileModal" class="modal-overlay">
   <div class="modal-body">
@@ -126,6 +166,66 @@
 
 {% block scripts %}
 <script>
+function openEnvSecretsModal(subId, subName) {
+  const modal = document.getElementById('envSecretsModal');
+  const title = document.getElementById('envSecretsTitle');
+  const textarea = document.getElementById('modal_env_vars');
+  const subInput = document.getElementById('modal_sub_id');
+  const msg = document.getElementById('envSaveMsg');
+
+  title.innerText = `⚙️ Secrets (.env) — ${subName}`;
+  subInput.value = subId;
+  textarea.value = 'Loading secrets...';
+  msg.innerText = '';
+  modal.classList.add('active');
+
+  fetch(`/api/submissions/${subId}/env`)
+    .then(res => res.json())
+    .then(data => {
+      textarea.value = data.env_vars || '';
+    })
+    .catch(err => {
+      textarea.value = `# Error loading secrets: ${err}`;
+    });
+}
+
+function saveEnvSecrets() {
+  const subId = document.getElementById('modal_sub_id').value;
+  const envVars = document.getElementById('modal_env_vars').value;
+  const msg = document.getElementById('envSaveMsg');
+
+  msg.style.color = 'var(--text-dim)';
+  msg.innerText = 'Saving secrets & restarting bot...';
+
+  fetch(`/api/submissions/${subId}/env`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ env_vars: envVars })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      msg.style.color = 'var(--accent)';
+      msg.innerText = `✅ ${data.message}`;
+      setTimeout(() => {
+        closeEnvSecretsModal();
+        window.location.reload();
+      }, 1200);
+    } else {
+      msg.style.color = 'var(--danger)';
+      msg.innerText = `❌ Error: ${data.error}`;
+    }
+  })
+  .catch(err => {
+    msg.style.color = 'var(--danger)';
+    msg.innerText = `❌ Save failed: ${err}`;
+  });
+}
+
+function closeEnvSecretsModal() {
+  document.getElementById('envSecretsModal').classList.remove('active');
+}
+
 function viewSubmissionFiles(subId) {
   const modal = document.getElementById('fileModal');
   const title = document.getElementById('modalTitle');
