@@ -1,643 +1,517 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 
-{% block title %}Dashboard - BotHost{% endblock %}
+{% block title %}Dashboard — BotHost{% endblock %}
 
 {% block content %}
 <style>
-/* Clean 3-Dot Action Dropdown Styling */
-.action-dropdown {
+/* 3-Dot Action Dropdown Menu for Original Theme */
+.dots-dropdown {
     position: relative;
     display: inline-block;
 }
 
-.action-dot-btn {
-    background: rgba(30, 41, 59, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #f1f5f9;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.btn-dots {
+    background: rgba(13, 19, 21, 0.8);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 10px;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 1.25rem;
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    line-height: 1;
     transition: all 0.2s ease;
 }
 
-.action-dot-btn:hover {
-    background: rgba(56, 189, 248, 0.15);
-    border-color: rgba(56, 189, 248, 0.4);
-    color: #38bdf8;
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+.btn-dots:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 10px rgba(61, 220, 132, 0.2);
 }
 
-.dropdown-menu-card {
+.dots-menu {
     display: none;
     position: absolute;
-    right: 0;
-    top: 42px;
-    background: #0f172a;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 10px;
-    width: 190px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    left: 0;
+    top: 32px;
+    background: #0d1315;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 200px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
     z-index: 100;
-    padding: 0.4rem 0;
-    backdrop-filter: blur(12px);
+    padding: 6px 0;
 }
 
-.dropdown-menu-card.show {
+.dots-menu.active {
     display: block;
-    animation: fadeIn 0.15s ease-out;
 }
 
-.dropdown-item-btn {
+.dots-menu-item {
     width: 100%;
     text-align: left;
     background: none;
     border: none;
-    padding: 0.6rem 1rem;
-    color: #e2e8f0;
-    font-size: 0.85rem;
+    padding: 8px 14px;
+    color: var(--text);
+    font-size: 0.82rem;
+    font-family: var(--mono);
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 8px;
     cursor: pointer;
+    text-decoration: none;
+    box-sizing: border-box;
     transition: background 0.15s ease;
 }
 
-.dropdown-item-btn:hover {
-    background: rgba(56, 189, 248, 0.1);
-    color: #38bdf8;
+.dots-menu-item:hover {
+    background: rgba(61, 220, 132, 0.1);
+    color: var(--accent);
 }
 
-.dropdown-item-btn.danger:hover {
-    background: rgba(239, 68, 68, 0.12);
-    color: #f87171;
+.dots-menu-item.danger-item:hover {
+    background: rgba(255, 95, 87, 0.15);
+    color: var(--danger);
 }
 
-.dropdown-divider {
+.dots-divider {
     height: 1px;
-    background: rgba(255, 255, 255, 0.08);
-    margin: 0.3rem 0;
+    background: var(--border);
+    margin: 4px 0;
 }
 </style>
 
-<div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-    <div>
-        <h2 style="font-size: 1.8rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">⚡ Control Center & Dashboard</h2>
-        <p style="color: #94a3b8; font-size: 0.95rem;">Manage, monitor, and deploy your Telegram bots 24/7 with zero downtime.</p>
-    </div>
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 4px;">
+  <h1 class="page-title" style="margin-bottom: 0;">Welcome, {{ session.get('user', 'User') }}</h1>
+  <button class="btn-secrets" style="font-size: 0.82rem; padding: 6px 14px;" onclick="openSessionGenModal()">
+    🔑 Generate String Session
+  </button>
+</div>
+<p class="page-sub">Deploy your bot directly via GitHub repository URL & manage live execution.</p>
+
+<div class="grid-2" style="margin-bottom: 24px;">
+  <div class="panel">
+    <h2>&gt;_ Deploy a bot</h2>
+
+    <form method="POST" action="/upload" class="stack-form">
+      <input type="hidden" name="upload_mode" value="github" class="mode-input">
+
+      <label for="repo_url">GITHUB REPOSITORY URL *</label>
+      <input type="text" id="repo_url" name="repo_url" placeholder="https://github.com/username/my-telegram-bot" required>
+
+      <label for="env_vars">ENVIRONMENT VARIABLES (.env - Optional)</label>
+      <textarea id="env_vars" name="env_vars" rows="4" style="background: #0d1315; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text); font-family: var(--mono); font-size: 0.85rem; outline: none; resize: vertical;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
+      <p class="hint">Auto-clone & 24/7 continuous run on cloud restart!</p>
+
+      <button type="submit" class="btn-primary">$ deploy bot for approval</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>🔔 Telegram Crash Alerts & Protection</h2>
+    <p class="hint" style="margin-bottom: 16px;">Receive instant Telegram notifications & 🛡️ Anti-Ban FloodWait protection.</p>
     
-    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-        <button class="btn btn-secondary" onclick="openSessionModal()" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #10b981;">
-            🔑 Generate String Session
-        </button>
-        <button class="btn btn-primary" onclick="openUploadModal()">
-            🚀 Deploy New Bot Repo
-        </button>
-    </div>
-</div>
-
-<!-- Telegram Alert Bot Connection Banner -->
-<div class="card" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(56, 189, 248, 0.3); margin-bottom: 1.5rem; padding: 1.25rem;">
-    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-        <div style="display: flex; align-items: center; gap: 1rem;">
-            <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
-                🤖
-            </div>
-            <div>
-                <h4 style="font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin-bottom: 0.2rem;">
-                    Telegram Interactive Control & Crash Alerts
-                </h4>
-                <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">
-                    {% if user_info and user_info.telegram_chat_id %}
-                        <span style="color: #34d399; font-weight: 600;">✓ Connected to Chat ID {{ user_info.telegram_chat_id }}</span> — Control bots & receive crash alerts in Telegram.
-                    {% else %}
-                        Link your Telegram account to get instant crash alerts and control bots via <code style="color: #38bdf8;">@{{ bot_username }}</code>.
-                    {% endif %}
-                </p>
-            </div>
-        </div>
-        <div>
-            {% if user_info and user_info.telegram_chat_id %}
-                <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.85rem; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8;">
-                    💬 Open Telegram Bot
-                </a>
-            {% else %}
-                <a href="https://t.me/{{ bot_username }}?start=connect_{{ session['user'] }}" target="_blank" class="btn btn-primary" style="padding: 0.55rem 1.1rem; font-size: 0.85rem;">
-                    ⚡ Connect via Telegram
-                </a>
-            {% endif %}
-        </div>
-    </div>
-</div>
-
-<!-- Submissions List -->
-<div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
-        <h3 style="font-size: 1.2rem; font-weight: 600; color: #f8fafc;">Your Hosted Bots</h3>
-        <span style="font-size: 0.85rem; color: #94a3b8;">Total: {{ submissions|length }}</span>
-    </div>
-
-    {% if not submissions %}
-        <div style="text-align: center; padding: 3rem 1rem; color: #94a3b8;">
-            <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.6;">📦</div>
-            <h4 style="font-size: 1.1rem; color: #f1f5f9; margin-bottom: 0.5rem;">No Telegram bots deployed yet</h4>
-            <p style="font-size: 0.9rem; max-width: 420px; margin: 0 auto 1.5rem auto;">
-                Deploy your Telegram bot repository from GitHub or upload files to get 24/7 hosting with zero downtime.
-            </p>
-            <button class="btn btn-primary" onclick="openUploadModal()">
-                🚀 Deploy First Bot
-            </button>
-        </div>
+    {% if user_info and user_info.telegram_chat_id %}
+      <div style="background: rgba(61, 220, 132, 0.08); border: 1px solid var(--accent-dim); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <span style="color: var(--accent); font-family: var(--mono); font-size: 0.85rem; font-weight: 600;">✅ Telegram Connected & Anti-Ban Active</span>
+        <span class="tiny" style="color: var(--text); margin-top: 4px;">Chat ID: <code class="mono">{{ user_info.telegram_chat_id }}</code></span>
+      </div>
     {% else %}
-        <div class="table-container">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Bot Name / Repo</th>
-                        <th>Status</th>
-                        <th>Type</th>
-                        <th>Created At</th>
-                        <th style="text-align: right;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for sub in submissions %}
-                    <tr>
-                        <td>
-                            <div style="font-weight: 600; color: #f8fafc;">{{ sub.name }}</div>
-                            <div style="font-size: 0.75rem; color: #64748b; font-family: monospace;">ID: #{{ sub.id }}</div>
-                            {% if sub.repo_url %}
-                                <a href="{{ sub.repo_url }}" target="_blank" style="font-size: 0.75rem; color: #38bdf8; text-decoration: none;">
-                                    🔗 {{ sub.repo_url }}
-                                </a>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
-                                {% if sub.status == 'running' %}
-                                    <span class="badge badge-success">🟢 RUNNING</span>
-                                    <span style="font-size: 0.72rem; color: #34d399; font-weight: 600; background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 10px;">
-                                        {{ sub.uptime_str or 'Online' }}
-                                    </span>
-                                {% elif sub.status == 'crashed' %}
-                                    <span class="badge badge-danger">🔴 CRASHED</span>
-                                {% elif sub.status == 'stopped' %}
-                                    <span class="badge badge-danger" style="background: rgba(239,68,68,0.15); color: #f87171;">🔴 STOPPED</span>
-                                {% elif sub.status == 'approved' %}
-                                    <span class="badge badge-success">🟢 APPROVED</span>
-                                {% elif sub.status == 'rejected' %}
-                                    <span class="badge badge-danger">🔴 REJECTED</span>
-                                {% else %}
-                                    <span class="badge badge-warning">🟡 PENDING REVIEW</span>
-                                {% endif %}
-                            </div>
-                        </td>
-                        <td>
-                            <span style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">
-                                {{ sub.mode or 'files' }}
-                            </span>
-                        </td>
-                        <td style="font-size: 0.85rem; color: #94a3b8;">
-                            {{ sub.created_at }}
-                        </td>
-                        <td style="text-align: right;">
-                            <!-- Clean 3-Dot Dropdown Action Menu -->
-                            <div class="action-dropdown">
-                                <button class="action-dot-btn" onclick="toggleDropdown(event, 'dropdown-{{ sub.id }}')">
-                                    ⋮
-                                </button>
-                                <div id="dropdown-{{ sub.id }}" class="dropdown-menu-card">
-                                    {% if sub.status == 'running' %}
-                                        <button class="dropdown-item-btn" onclick="controlSingleBot('{{ sub.id }}', 'restart')">
-                                            ⚡ Hot-Reload (0-Downtime)
-                                        </button>
-                                        <button class="dropdown-item-btn" onclick="controlSingleBot('{{ sub.id }}', 'stop')">
-                                            ⏹ Stop Bot
-                                        </button>
-                                    {% else %}
-                                        <button class="dropdown-item-btn" onclick="controlSingleBot('{{ sub.id }}', 'start')">
-                                            ▶️ Start Bot
-                                        </button>
-                                    {% endif %}
-
-                                    <button class="dropdown-item-btn" onclick="openLogsModal('{{ sub.id }}')">
-                                        📄 Live Logs
-                                    </button>
-                                    <button class="dropdown-item-btn" onclick="openEnvModal('{{ sub.id }}')">
-                                        ⚙️ Secrets (.env)
-                                    </button>
-                                    
-                                    <div class="dropdown-divider"></div>
-                                    
-                                    <button class="dropdown-item-btn danger" onclick="confirmDeleteBot('{{ sub.id }}')">
-                                        🗑️ Delete Bot
-                                    </button>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+      <div style="background: rgba(217, 164, 65, 0.08); border: 1px solid rgba(217,164,65,0.35); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <span style="color: var(--warn); font-family: var(--mono); font-size: 0.85rem; font-weight: 600;">⚠️ Not Connected</span>
+        <span class="tiny" style="color: var(--text-dim); margin-top: 4px;">Connect Telegram to receive instant crash notifications & remote commands.</span>
+      </div>
     {% endif %}
-</div>
 
-<!-- Modal 1: Deploy New Bot Repo -->
-<div id="uploadModal" class="modal-backdrop" style="display: none;">
-    <div class="modal-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
-            <h3 style="font-size: 1.2rem; font-weight: 600; color: #f8fafc;">🚀 Deploy New Bot Repository</h3>
-            <button onclick="closeUploadModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer;">&times;</button>
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <a href="https://t.me/{{ bot_username }}?start=connect_{{ session.get('user') }}" target="_blank" class="btn-primary" style="text-align: center; text-decoration: none; display: block; background: #0088cc; color: #fff; margin-top: 0; box-shadow: 0 4px 15px rgba(0, 136, 204, 0.3);">
+        ✈️ Connect via Telegram (1-Click)
+      </a>
+
+      <form method="POST" action="/connect_telegram" class="stack-form" style="margin-top: 6px;">
+        <label for="chat_id">OR ENTER TELEGRAM CHAT ID MANUALLY</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="chat_id" name="chat_id" placeholder="e.g. 123456789" value="{{ user_info.telegram_chat_id if user_info else '' }}" style="flex: 1;">
+          <button type="submit" class="btn-ghost" style="padding: 10px 14px; border-color: var(--accent-dim); color: var(--accent);">Save ID</button>
         </div>
-
-        <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
-            <div class="form-group">
-                <label class="form-label">Deployment Mode</label>
-                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
-                    <label style="display: flex; align-items: center; gap: 0.4rem; color: #e2e8f0; cursor: pointer;">
-                        <input type="radio" name="upload_mode" value="github" checked onclick="toggleUploadFields('github')">
-                        GitHub Repository (Auto-Sync)
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.4rem; color: #e2e8f0; cursor: pointer;">
-                        <input type="radio" name="upload_mode" value="files" onclick="toggleUploadFields('files')">
-                        Direct Python Files
-                    </label>
-                </div>
-            </div>
-
-            <!-- GitHub Mode -->
-            <div id="githubFields">
-                <div class="form-group">
-                    <label class="form-label">GitHub Repository URL (Public or Private)</label>
-                    <input type="url" name="repo_url" class="form-control" placeholder="https://github.com/username/telegram-bot">
-                    <span style="font-size: 0.78rem; color: #64748b; margin-top: 0.2rem; display: block;">
-                        Private repositories are cloned automatically using server token.
-                    </span>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Environment Variables (.env)</label>
-                    <textarea name="env_vars" class="form-control" rows="4" placeholder="BOT_TOKEN=8712647...&#10;API_ID=21948855&#10;API_HASH=10397236f3a..."></textarea>
-                </div>
-            </div>
-
-            <!-- Direct Files Mode -->
-            <div id="filesFields" style="display: none;">
-                <div class="form-group">
-                    <label class="form-label">Main Python File (bot.py / AutoAd.py / main.py)</label>
-                    <input type="file" name="bot_file" class="form-control" accept=".py">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">requirements.txt (Optional)</label>
-                    <input type="file" name="requirements_file" class="form-control" accept=".txt">
-                </div>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-                <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Submit for Deployment</button>
-            </div>
-        </form>
+        <p class="hint" style="font-size: 0.72rem;">Get your ID from Telegram bot @userinfobot</p>
+      </form>
     </div>
+  </div>
 </div>
 
-<!-- Modal 2: Manage Secrets (.env) -->
-<div id="envModal" class="modal-backdrop" style="display: none;">
-    <div class="modal-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="font-size: 1.2rem; font-weight: 600; color: #f8fafc;">⚙️ Manage Bot Secrets (.env)</h3>
-            <button onclick="closeEnvModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer;">&times;</button>
-        </div>
-
-        <input type="hidden" id="envSubId">
-        <div class="form-group">
-            <label class="form-label">Environment Variables Config</label>
-            <textarea id="envTextarea" class="form-control" rows="8" style="font-family: monospace; font-size: 0.85rem; background: #090d16; color: #34d399;"></textarea>
-            <span style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.4rem; display: block;">
-                Saving changes will hot-reload the bot process with 0 downtime automatically.
-            </span>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem;">
-            <span id="envStatusMsg" style="font-size: 0.82rem; font-weight: 600;"></span>
-            <div style="display: flex; gap: 0.5rem;">
-                <button class="btn btn-secondary" onclick="closeEnvModal()">Close</button>
-                <button class="btn btn-primary" onclick="saveEnvVars()">💾 Save & Hot-Reload</button>
+<div class="panel">
+  <h2>&gt;_ Your submissions</h2>
+  {% if submissions %}
+    <ul class="submission-list">
+      {% for sub in submissions %}
+        <li class="submission-item">
+          <div style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="mono" style="font-weight: 600; font-size: 0.95rem;">{{ sub.name }}</span>
             </div>
-        </div>
+            <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
+
+            <!-- Original UI + Single 3-Dots Dropdown containing all actions -->
+            <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center;">
+              <div class="dots-dropdown">
+                <button class="btn-dots" onclick="toggleDotsMenu(event, 'menu-{{ sub.id }}')">⋮</button>
+                <div id="menu-{{ sub.id }}" class="dots-menu">
+                  <button class="dots-menu-item" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
+                    ⚙️ Secrets (.env)
+                  </button>
+                  <button class="dots-menu-item" onclick="viewUserLogs('{{ sub.id }}')">
+                    📄 View Logs
+                  </button>
+                  
+                  {% if sub.status == 'running' %}
+                    <button class="dots-menu-item" onclick="controlSingleBot('{{ sub.id }}', 'restart')">
+                      ⚡ Hot-Reload
+                    </button>
+                    <button class="dots-menu-item" onclick="controlSingleBot('{{ sub.id }}', 'stop')">
+                      ⏹ Stop Bot
+                    </button>
+                  {% else %}
+                    <button class="dots-menu-item" onclick="controlSingleBot('{{ sub.id }}', 'start')">
+                      ▶️ Start Bot
+                    </button>
+                  {% endif %}
+
+                  <div class="dots-divider"></div>
+
+                  <a href="/submission/{{ sub.id }}/delete" class="dots-menu-item danger-item" onclick="return confirm('Are you sure you want to delete this submission?')">
+                    🗑️ Delete Bot
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Clean Stacked Status Badges -->
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin-left: 8px;">
+            <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+            {% if sub.status == 'running' %}
+              <span class="status status-running" style="font-size: 0.65rem; padding: 2px 7px;">
+                ⚡ {{ sub.uptime_str if sub.uptime_str else 'Online' }}
+              </span>
+            {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty-state">No submissions yet. Enter your GitHub repo URL to deploy your first bot.</p>
+  {% endif %}
+</div>
+
+<!-- Modal for Telethon & Pyrogram String Session Generator -->
+<div id="sessionGenModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 540px;">
+    <div class="modal-header">
+      <h3>🔑 Telethon & Pyrogram String Session Generator</h3>
+      <button class="modal-close" onclick="closeSessionGenModal()">&times;</button>
     </div>
-</div>
+    <div class="modal-content-area">
+      <p style="color: var(--text-dim); font-size: 0.82rem; margin-top: 0;">Generate Telethon / Pyrogram String Session directly for your userbots.</p>
+      
+      <!-- Step 1: Send Code Form -->
+      <div id="step_send_code" class="stack-form">
+        <label for="gen_api_id">API ID *</label>
+        <input type="text" id="gen_api_id" value="21948855" placeholder="e.g. 21948855">
 
-<!-- Modal 3: View Live Execution Logs -->
-<div id="logsModal" class="modal-backdrop" style="display: none;">
-    <div class="modal-card" style="max-width: 750px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="font-size: 1.2rem; font-weight: 600; color: #f8fafc;">📄 Live Bot Execution Logs</h3>
-            <button onclick="closeLogsModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer;">&times;</button>
-        </div>
+        <label for="gen_api_hash">API HASH *</label>
+        <input type="text" id="gen_api_hash" value="10397236f3a19797e9e7b70fa20fc121" placeholder="e.g. 10397236f3a19797e9e7b70fa20fc121">
 
-        <div style="background: #090d16; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 1rem; height: 350px; overflow-y: auto;">
-            <pre id="logsContainer" style="color: #38bdf8; font-family: monospace; font-size: 0.82rem; white-space: pre-wrap; word-break: break-all; margin: 0;">Loading logs...</pre>
-        </div>
+        <label for="gen_phone">PHONE NUMBER (with country code) *</label>
+        <input type="text" id="gen_phone" placeholder="e.g. +918234082214">
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
-            <span style="font-size: 0.78rem; color: #64748b;">Auto-refreshed from BotHost log engine</span>
-            <button class="btn btn-secondary" onclick="closeLogsModal()">Close</button>
+        <button type="button" class="btn-primary" onclick="requestSessionCode()">📲 Send OTP Code via Telegram</button>
+        <p id="sendCodeStatus" class="hint" style="text-align: center; margin-top: 8px;"></p>
+      </div>
+
+      <!-- Step 2: Verify OTP & 2FA Form -->
+      <div id="step_verify_otp" class="stack-form" style="display: none;">
+        <label for="gen_otp">TELEGRAM LOGIN CODE (OTP) *</label>
+        <input type="text" id="gen_otp" placeholder="Enter 5-digit code received on Telegram">
+
+        <label for="gen_password">TWO-FACTOR PASSWORD (2FA - If enabled)</label>
+        <input type="password" id="gen_password" placeholder="Leave empty if no 2FA">
+
+        <button type="button" class="btn-primary" onclick="submitSessionLogin()">🔑 Verify Code & Generate Session</button>
+        <p id="verifyOtpStatus" class="hint" style="text-align: center; margin-top: 8px;"></p>
+      </div>
+
+      <!-- Step 3: Display Generated String Session -->
+      <div id="step_result" class="stack-form" style="display: none;">
+        <label style="color: var(--accent);">✅ YOUR TELETHON STRING SESSION</label>
+        <textarea id="gen_result_session" rows="4" readonly style="background: #070a0b; border: 1px solid var(--accent-dim); border-radius: 6px; padding: 10px; color: #3ddc84; font-family: var(--mono); font-size: 0.82rem; width: 100%; outline: none;"></textarea>
+        
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn-primary" style="flex: 1; margin-top: 0;" onclick="copyResultSession()">📋 Copy String Session</button>
+          <button type="button" class="btn-ghost" onclick="resetSessionGen()">Done</button>
         </div>
+      </div>
     </div>
+  </div>
 </div>
 
-<!-- Modal 4: Generate Telethon String Session -->
-<div id="sessionGenModal" class="modal-backdrop" style="display: none;">
-    <div class="modal-card" style="max-width: 480px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="font-size: 1.2rem; font-weight: 600; color: #f8fafc;">🔑 Telethon String Session Generator</h3>
-            <button onclick="closeSessionModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer;">&times;</button>
-        </div>
-
-        <!-- Step 1: Input API Credentials & Phone -->
-        <div id="sessionStep1">
-            <div class="form-group">
-                <label class="form-label">Telegram API ID</label>
-                <input type="text" id="sessApiId" class="form-control" placeholder="21948855" value="21948855">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Telegram API Hash</label>
-                <input type="text" id="sessApiHash" class="form-control" placeholder="10397236f3a19797e9e7b70fa20fc121" value="10397236f3a19797e9e7b70fa20fc121">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Phone Number (with Country Code)</label>
-                <input type="text" id="sessPhone" class="form-control" placeholder="+918234082214">
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
-                <button class="btn btn-secondary" onclick="closeSessionModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="sendSessionCode()">📲 Send OTP Code</button>
-            </div>
-        </div>
-
-        <!-- Step 2: Input OTP & 2FA -->
-        <div id="sessionStep2" style="display: none;">
-            <input type="hidden" id="activeSessId">
-            <div class="form-group">
-                <label class="form-label">Telegram OTP Code</label>
-                <input type="text" id="sessOtp" class="form-control" placeholder="Enter 5-digit code received on Telegram">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Two-Factor (2FA) Password (If enabled)</label>
-                <input type="password" id="sess2FA" class="form-control" placeholder="Leave blank if no 2FA">
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
-                <button class="btn btn-secondary" onclick="closeSessionModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="verifySessionCode()">🔑 Generate String Session</button>
-            </div>
-        </div>
-
-        <!-- Step 3: Result Display -->
-        <div id="sessionStep3" style="display: none;">
-            <div class="form-group">
-                <label class="form-label" style="color: #34d399;">✅ Generated String Session</label>
-                <textarea id="sessResult" class="form-control" rows="5" readonly style="font-family: monospace; font-size: 0.8rem; color: #34d399; background: #090d16;"></textarea>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
-                <button class="btn btn-secondary" onclick="copySessionString()">📋 Copy to Clipboard</button>
-                <button class="btn btn-primary" onclick="closeSessionModal()">Done</button>
-            </div>
-        </div>
-
-        <div id="sessStatusMsg" style="font-size: 0.82rem; font-weight: 600; margin-top: 0.75rem;"></div>
+<!-- Modal for Interactive .env Secrets Manager -->
+<div id="envSecretsModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 600px;">
+    <div class="modal-header">
+      <h3 id="envSecretsTitle">⚙️ Edit Environment Secrets (.env)</h3>
+      <button class="modal-close" onclick="closeEnvSecretsModal()">&times;</button>
     </div>
+    <div class="modal-content-area">
+      <p style="color: var(--text-dim); font-size: 0.82rem; margin-top: 0;">Add or edit secret variables for this bot (`KEY=VALUE` format). Click Save to automatically update and restart the bot.</p>
+      
+      <div class="stack-form">
+        <label for="modal_env_vars">ENVIRONMENT VARIABLES (.env)</label>
+        <textarea id="modal_env_vars" rows="8" style="background: #070a0b; border: 1px solid var(--border); border-radius: 6px; padding: 12px; color: #3ddc84; font-family: var(--mono); font-size: 0.88rem; width: 100%; outline: none;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
+        <input type="hidden" id="modal_sub_id">
+        
+        <div style="display: flex; gap: 10px; margin-top: 14px;">
+          <button type="button" class="btn-primary" style="flex: 1; margin-top: 0;" onclick="saveEnvSecrets()">💾 Save & Auto-Restart Bot</button>
+          <button type="button" class="btn-ghost" onclick="closeEnvSecretsModal()">Cancel</button>
+        </div>
+        <p id="envSaveMsg" class="hint" style="text-align: center; margin-top: 8px;"></p>
+      </div>
+    </div>
+  </div>
 </div>
 
+<!-- Modal for User to inspect logs & crash trace -->
+<div id="userLogModal" class="modal-overlay">
+  <div class="modal-body">
+    <div class="modal-header">
+      <h3 id="userLogTitle">Bot Logs</h3>
+      <button class="modal-close" onclick="closeUserModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" id="userLogContent">
+      <p>Loading logs...</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
 <script>
-// Toggle 3-Dot Dropdown Menu
-function toggleDropdown(event, menuId) {
-    event.stopPropagation();
-    const allMenus = document.querySelectorAll('.dropdown-menu-card');
-    allMenus.forEach(m => {
-        if (m.id !== menuId) m.classList.remove('show');
-    });
-    const target = document.getElementById(menuId);
-    if (target) target.classList.toggle('show');
+// Toggle 3-Dots Action Dropdown Menu
+function toggleDotsMenu(event, menuId) {
+  event.stopPropagation();
+  const allMenus = document.querySelectorAll('.dots-menu');
+  allMenus.forEach(m => {
+    if (m.id !== menuId) m.classList.remove('active');
+  });
+  const target = document.getElementById(menuId);
+  if (target) target.classList.toggle('active');
 }
 
-// Close dropdowns when clicking outside
+// Close dropdown when clicking outside
 document.addEventListener('click', function() {
-    const allMenus = document.querySelectorAll('.dropdown-menu-card');
-    allMenus.forEach(m => m.classList.remove('show'));
+  const allMenus = document.querySelectorAll('.dots-menu');
+  allMenus.forEach(m => m.classList.remove('active'));
 });
 
-function openUploadModal() {
-    document.getElementById('uploadModal').style.display = 'flex';
-}
-function closeUploadModal() {
-    document.getElementById('uploadModal').style.display = 'none';
-}
-function toggleUploadFields(mode) {
-    if (mode === 'github') {
-        document.getElementById('githubFields').style.display = 'block';
-        document.getElementById('filesFields').style.display = 'none';
-    } else {
-        document.getElementById('githubFields').style.display = 'none';
-        document.getElementById('filesFields').style.display = 'block';
-    }
-}
-
-// Single Bot Control (Start / Stop / Hot-Reload)
+// Single Bot Control Action (Start / Stop / Hot-Reload)
 function controlSingleBot(subId, action) {
-    fetch('/api/user/submission/' + subId + '/' + action, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            window.location.reload();
-        } else {
-            alert('Error: ' + (data.error || 'Failed action'));
-        }
-    })
-    .catch(err => alert('Network error: ' + err));
-}
-
-function confirmDeleteBot(subId) {
-    if (confirm('Are you sure you want to delete this bot submission permanently?')) {
-        window.location.href = '/submission/' + subId + '/delete';
+  fetch('/api/user/submission/' + subId + '/' + action, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      window.location.reload();
+    } else {
+      alert('Error: ' + (data.error || 'Failed action'));
     }
+  })
+  .catch(err => alert('Network error: ' + err));
 }
 
-// Secrets Manager (.env)
-function openEnvModal(subId) {
-    document.getElementById('envSubId').value = subId;
-    document.getElementById('envStatusMsg').innerText = 'Loading .env...';
-    document.getElementById('envStatusMsg').style.color = '#94a3b8';
-    document.getElementById('envModal').style.display = 'flex';
+let currentSessionId = '';
 
-    fetch('/api/submissions/' + subId + '/env')
-        .then(res => res.json())
-        .then(data => {
-            document.getElementById('envTextarea').value = data.env_vars || '';
-            document.getElementById('envStatusMsg').innerText = '';
-        })
-        .catch(err => {
-            document.getElementById('envStatusMsg').innerText = 'Error loading secrets.';
-            document.getElementById('envStatusMsg').style.color = '#f87171';
-        });
+function openSessionGenModal() {
+  document.getElementById('sessionGenModal').classList.add('active');
+  resetSessionGen();
 }
 
-function closeEnvModal() {
-    document.getElementById('envModal').style.display = 'none';
+function closeSessionGenModal() {
+  document.getElementById('sessionGenModal').classList.remove('active');
 }
 
-function saveEnvVars() {
-    const subId = document.getElementById('envSubId').value;
-    const envVars = document.getElementById('envTextarea').value;
-    const statusMsg = document.getElementById('envStatusMsg');
+function resetSessionGen() {
+  document.getElementById('step_send_code').style.display = 'flex';
+  document.getElementById('step_verify_otp').style.display = 'none';
+  document.getElementById('step_result').style.display = 'none';
+  document.getElementById('sendCodeStatus').innerText = '';
+  document.getElementById('verifyOtpStatus').innerText = '';
+  currentSessionId = '';
+}
 
-    statusMsg.innerText = 'Saving & Hot-Reloading...';
-    statusMsg.style.color = '#38bdf8';
+function requestSessionCode() {
+  const apiId = document.getElementById('gen_api_id').value.trim();
+  const apiHash = document.getElementById('gen_api_hash').value.trim();
+  const phone = document.getElementById('gen_phone').value.trim();
+  const status = document.getElementById('sendCodeStatus');
 
-    fetch('/api/submissions/' + subId + '/env', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ env_vars: envVars })
-    })
+  if (!apiId || !apiHash || !phone) {
+    status.style.color = 'var(--danger)';
+    status.innerText = 'Please fill in API ID, API HASH, and Phone Number.';
+    return;
+  }
+
+  status.style.color = 'var(--text-dim)';
+  status.innerText = 'Sending login code to Telegram...';
+
+  fetch('/api/session/send_code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_id: apiId, api_hash: apiHash, phone: phone })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      currentSessionId = data.session_id;
+      document.getElementById('step_send_code').style.display = 'none';
+      document.getElementById('step_verify_otp').style.display = 'flex';
+    } else {
+      status.style.color = 'var(--danger)';
+      status.innerText = `Error: ${data.error}`;
+    }
+  })
+  .catch(err => {
+    status.style.color = 'var(--danger)';
+    status.innerText = `Failed to request code: ${err}`;
+  });
+}
+
+function submitSessionLogin() {
+  const code = document.getElementById('gen_otp').value.trim();
+  const password = document.getElementById('gen_password').value.trim();
+  const status = document.getElementById('verifyOtpStatus');
+
+  if (!code) {
+    status.style.color = 'var(--danger)';
+    status.innerText = 'Please enter the Login Code (OTP).';
+    return;
+  }
+
+  status.style.color = 'var(--text-dim)';
+  status.innerText = 'Verifying code & generating String Session...';
+
+  fetch('/api/session/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: currentSessionId, code: code, password: password })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      document.getElementById('step_verify_otp').style.display = 'none';
+      document.getElementById('step_result').style.display = 'flex';
+      document.getElementById('gen_result_session').value = data.string_session;
+    } else {
+      status.style.color = 'var(--danger)';
+      status.innerText = `Error: ${data.error}`;
+    }
+  })
+  .catch(err => {
+    status.style.color = 'var(--danger)';
+    status.innerText = `Login failed: ${err}`;
+  });
+}
+
+function copyResultSession() {
+  const textarea = document.getElementById('gen_result_session');
+  textarea.select();
+  document.execCommand('copy');
+  alert('✅ String Session copied to clipboard!');
+}
+
+function openEnvSecretsModal(subId, subName) {
+  const modal = document.getElementById('envSecretsModal');
+  const title = document.getElementById('envSecretsTitle');
+  const textarea = document.getElementById('modal_env_vars');
+  const subInput = document.getElementById('modal_sub_id');
+  const msg = document.getElementById('envSaveMsg');
+
+  title.innerText = `⚙️ Secrets (.env) — ${subName}`;
+  subInput.value = subId;
+  textarea.value = 'Loading secrets...';
+  msg.innerText = '';
+  modal.classList.add('active');
+
+  fetch(`/api/submissions/${subId}/env`)
     .then(res => res.json())
     .then(data => {
-        if (data.success) {
-            statusMsg.innerText = data.message;
-            statusMsg.style.color = '#34d399';
-            setTimeout(() => { closeEnvModal(); window.location.reload(); }, 1200);
-        } else {
-            statusMsg.innerText = 'Error: ' + (data.error || 'Failed to save');
-            statusMsg.style.color = '#f87171';
-        }
+      textarea.value = data.env_vars || '';
     })
     .catch(err => {
-        statusMsg.innerText = 'Network error.';
-        statusMsg.style.color = '#f87171';
+      textarea.value = `# Error loading secrets: ${err}`;
     });
 }
 
-// Logs Modal
-function openLogsModal(subId) {
-    document.getElementById('logsContainer').innerText = 'Loading logs...';
-    document.getElementById('logsModal').style.display = 'flex';
+function saveEnvSecrets() {
+  const subId = document.getElementById('modal_sub_id').value;
+  const envVars = document.getElementById('modal_env_vars').value;
+  const msg = document.getElementById('envSaveMsg');
 
-    fetch('/api/submissions/' + subId + '/logs')
-        .then(res => res.json())
-        .then(data => {
-            document.getElementById('logsContainer').innerText = data.logs || 'No logs available.';
-        })
-        .catch(err => {
-            document.getElementById('logsContainer').innerText = 'Error loading logs.';
-        });
-}
+  msg.style.color = 'var(--text-dim)';
+  msg.innerText = 'Saving secrets & restarting bot...';
 
-function closeLogsModal() {
-    document.getElementById('logsModal').style.display = 'none';
-}
-
-// Session Generator Modal
-function openSessionModal() {
-    document.getElementById('sessionStep1').style.display = 'block';
-    document.getElementById('sessionStep2').style.display = 'none';
-    document.getElementById('sessionStep3').style.display = 'none';
-    document.getElementById('sessStatusMsg').innerText = '';
-    document.getElementById('sessionGenModal').style.display = 'flex';
-}
-
-function closeSessionModal() {
-    document.getElementById('sessionGenModal').style.display = 'none';
-}
-
-function sendSessionCode() {
-    const apiId = document.getElementById('sessApiId').value.trim();
-    const apiHash = document.getElementById('sessApiHash').value.trim();
-    const phone = document.getElementById('sessPhone').value.trim();
-    const msg = document.getElementById('sessStatusMsg');
-
-    if (!apiId || !apiHash || !phone) {
-        msg.innerText = 'Please fill all fields.';
-        msg.style.color = '#f87171';
-        return;
+  fetch(`/api/submissions/${subId}/env`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ env_vars: envVars })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      msg.style.color = 'var(--accent)';
+      msg.innerText = `✅ ${data.message}`;
+      setTimeout(() => {
+        closeEnvSecretsModal();
+        window.location.reload();
+      }, 1200);
+    } else {
+      msg.style.color = 'var(--danger)';
+      msg.innerText = `❌ Error: ${data.error}`;
     }
+  })
+  .catch(err => {
+    msg.style.color = 'var(--danger)';
+    msg.innerText = `❌ Save failed: ${err}`;
+  });
+}
 
-    msg.innerText = 'Sending OTP code via Telegram...';
-    msg.style.color = '#38bdf8';
+function closeEnvSecretsModal() {
+  document.getElementById('envSecretsModal').classList.remove('active');
+}
 
-    fetch('/api/session/send_code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_id: apiId, api_hash: apiHash, phone: phone })
-    })
+function viewUserLogs(subId) {
+  const modal = document.getElementById('userLogModal');
+  const title = document.getElementById('userLogTitle');
+  const content = document.getElementById('userLogContent');
+  
+  title.innerText = `Execution & Crash Logs — Submission #${subId}`;
+  content.innerHTML = '<p style="color: var(--text-dim);">Fetching bot execution logs...</p>';
+  modal.classList.add('active');
+
+  fetch(`/api/submissions/${subId}/logs`)
     .then(res => res.json())
     .then(data => {
-        if (data.success) {
-            document.getElementById('activeSessId').value = data.session_id;
-            document.getElementById('sessionStep1').style.display = 'none';
-            document.getElementById('sessionStep2').style.display = 'block';
-            msg.innerText = data.message;
-            msg.style.color = '#34d399';
-        } else {
-            msg.innerText = 'Error: ' + (data.error || 'Failed to send OTP');
-            msg.style.color = '#f87171';
-        }
+      content.innerHTML = `<pre class="code-block" style="color: #3ddc84;">${data.logs || 'No execution logs available.'}</pre>`;
     })
     .catch(err => {
-        msg.innerText = 'Network error.';
-        msg.style.color = '#f87171';
+      content.innerHTML = `<p style="color: var(--danger);">Failed to load logs: ${err}</p>`;
     });
 }
 
-function verifySessionCode() {
-    const sessId = document.getElementById('activeSessId').value;
-    const code = document.getElementById('sessOtp').value.trim();
-    const password = document.getElementById('sess2FA').value.trim();
-    const msg = document.getElementById('sessStatusMsg');
-
-    if (!code) {
-        msg.innerText = 'Please enter the OTP code.';
-        msg.style.color = '#f87171';
-        return;
-    }
-
-    msg.innerText = 'Verifying OTP & generating Telethon String Session...';
-    msg.style.color = '#38bdf8';
-
-    fetch('/api/session/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessId, code: code, password: password })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            document.getElementById('sessResult').value = data.string_session;
-            document.getElementById('sessionStep2').style.display = 'none';
-            document.getElementById('sessionStep3').style.display = 'block';
-            msg.innerText = data.message;
-            msg.style.color = '#34d399';
-        } else {
-            msg.innerText = 'Error: ' + (data.error || 'Login failed');
-            msg.style.color = '#f87171';
-        }
-    })
-    .catch(err => {
-        msg.innerText = 'Network error.';
-        msg.style.color = '#f87171';
-    });
-}
-
-function copySessionString() {
-    const copyText = document.getElementById('sessResult');
-    copyText.select();
-    navigator.clipboard.writeText(copyText.value);
-    alert('Telethon String Session copied to clipboard!');
+function closeUserModal() {
+  document.getElementById('userLogModal').classList.remove('active');
 }
 </script>
 {% endblock %}
