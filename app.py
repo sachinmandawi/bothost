@@ -48,7 +48,12 @@ def get_user(username):
         try:
             u = mongo_db.users.find_one({"username": username})
             if u:
-                return {"username": u["username"], "password": u["password"], "created_at": u.get("created_at", "")}
+                return {
+                    "username": u["username"],
+                    "password": u["password"],
+                    "is_admin": u.get("is_admin", False),
+                    "created_at": u.get("created_at", "")
+                }
         except Exception as e:
             print("MongoDB get_user error:", e)
 
@@ -58,21 +63,21 @@ def get_user(username):
         return users[username]
     return None
 
-def create_user(username, password):
+def create_user(username, password, is_admin=False):
     """ Insert new user into MongoDB and db.json """
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if mongo_db is not None:
         try:
             mongo_db.users.update_one(
                 {"username": username},
-                {"$set": {"username": username, "password": password, "created_at": now_str}},
+                {"$set": {"username": username, "password": password, "is_admin": is_admin, "created_at": now_str}},
                 upsert=True
             )
         except Exception as e:
             print("MongoDB create_user error:", e)
 
     db = load_json_db()
-    db["users"][username] = {"password": password, "created_at": now_str}
+    db["users"][username] = {"password": password, "is_admin": is_admin, "created_at": now_str}
     save_json_db(db)
 
 def get_all_submissions():
@@ -119,8 +124,7 @@ def load_json_db():
     if not os.path.exists(DB_FILE):
         data = {
             "users": {
-                "Kunal.soree": {"password": "pass123", "created_at": "2026-07-25 12:00:00"},
-                "Admin": {"password": "pass123", "created_at": "2026-07-25 12:00:00"}
+                "sachinmandawi": {"password": "sachinmandawi", "is_admin": True, "created_at": "2026-07-25 13:00:00"}
             },
             "submissions": []
         }
@@ -134,6 +138,15 @@ def load_json_db():
                 data["users"] = {}
             if "submissions" not in data:
                 data["submissions"] = []
+            
+            # Ensure sachinmandawi admin exists
+            if "sachinmandawi" not in data["users"]:
+                data["users"]["sachinmandawi"] = {
+                    "password": "sachinmandawi",
+                    "is_admin": True,
+                    "created_at": "2026-07-25 13:00:00"
+                }
+                save_json_db(data)
             return data
     except Exception:
         return {"users": {}, "submissions": []}
@@ -245,14 +258,24 @@ def login():
             flash('Username and password are required', 'error')
             return render_template('login.html')
 
+        # Check for sachinmandawi admin credentials
+        if username == 'sachinmandawi' and password == 'sachinmandawi':
+            create_user('sachinmandawi', 'sachinmandawi', is_admin=True)
+            session['user'] = 'sachinmandawi'
+            session['is_admin'] = True
+            flash('Logged in as Admin (sachinmandawi)', 'success')
+            return redirect(url_for('admin'))
+
         user_data = get_user(username)
 
         # Strict authentication check
         if user_data:
             if user_data['password'] == password:
                 session['user'] = username
-                session['is_admin'] = (username.lower() == 'admin')
+                session['is_admin'] = user_data.get('is_admin', False)
                 flash(f'Successfully logged in as {username}', 'success')
+                if session['is_admin']:
+                    return redirect(url_for('admin'))
                 return redirect(url_for('dashboard'))
             else:
                 flash('Invalid password. Please try again.', 'error')
@@ -283,11 +306,14 @@ def signup():
             flash('Username already exists. Please pick another or log in.', 'error')
             return render_template('signup.html')
 
-        create_user(username, password)
+        is_admin = (username == 'sachinmandawi' and password == 'sachinmandawi')
+        create_user(username, password, is_admin=is_admin)
 
         session['user'] = username
-        session['is_admin'] = (username.lower() == 'admin')
+        session['is_admin'] = is_admin
         flash('Account created successfully! Welcome to BotHost.', 'success')
+        if is_admin:
+            return redirect(url_for('admin'))
         return redirect(url_for('dashboard'))
 
     return render_template('signup.html')
@@ -373,8 +399,8 @@ def upload():
 @app.route('/admin')
 def admin():
     if 'user' not in session or not session.get('is_admin'):
-        session['user'] = 'Admin'
-        session['is_admin'] = True
+        flash('Access Denied. Admin login required.', 'error')
+        return redirect(url_for('login'))
 
     all_submissions = list(get_all_submissions())
     all_submissions.reverse()
@@ -382,6 +408,10 @@ def admin():
 
 @app.route('/admin/review/<sub_id>/<action>')
 def review_action(sub_id, action):
+    if 'user' not in session or not session.get('is_admin'):
+        flash('Access Denied. Admin credentials required.', 'error')
+        return redirect(url_for('login'))
+
     all_subs = get_all_submissions()
     updated = False
     msg = ""
@@ -410,6 +440,9 @@ def review_action(sub_id, action):
 
 @app.route('/api/submissions/<sub_id>/files')
 def api_submission_files(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     if not os.path.exists(sub_dir):
         return jsonify({"error": "Submission directory not found"}), 404
@@ -440,6 +473,9 @@ def api_submission_files(sub_id):
 
 @app.route('/api/submissions/<sub_id>/logs')
 def api_submission_logs(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
     log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
     if not os.path.exists(log_file_path):
         return jsonify({"logs": "No execution logs generated yet."})
