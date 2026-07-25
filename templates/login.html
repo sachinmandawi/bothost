@@ -13,7 +13,10 @@
       <input type="text" id="username" name="username" autocomplete="username" required autofocus>
 
       <label for="password">password</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <div class="password-wrap">
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+        <button type="button" class="toggle-password" data-target="password" title="Toggle Password Visibility">👁️</button>
+      </div>
 
       <button type="submit" class="btn-primary">$ login</button>
     </form>

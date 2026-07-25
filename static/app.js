@@ -22,6 +22,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Password Visibility Toggle (Eye Icon)
+  const togglePassBtns = document.querySelectorAll('.toggle-password');
+  togglePassBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.target;
+      const passInput = document.getElementById(targetId);
+      if (passInput) {
+        const isPassword = passInput.type === 'password';
+        passInput.type = isPassword ? 'text' : 'password';
+        btn.textContent = isPassword ? '🙈' : '👁️';
+        btn.setAttribute('title', isPassword ? 'Hide Password' : 'Show Password');
+      }
+    });
+  });
+
   // Client-side form validation before submitting
   const forms = document.querySelectorAll('form');
   forms.forEach(form => {
