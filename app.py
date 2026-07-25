@@ -11,6 +11,7 @@ import threading
 import time
 import urllib.request
 import urllib.parse
+
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 
 try:
@@ -18,6 +19,13 @@ try:
     HAS_PYMONGO = True
 except ImportError:
     HAS_PYMONGO = False
+
+try:
+    from telethon.sync import TelegramClient
+    from telethon.sessions import StringSession
+    HAS_TELETHON = True
+except ImportError:
+    HAS_TELETHON = False
 
 app = Flask(__name__)
 app.secret_key = 'bothost-secret-key-super-secure'
@@ -28,6 +36,9 @@ DB_FILE = os.path.join(os.path.dirname(__file__), 'db.json')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(LOGS_FOLDER, exist_ok=True)
+
+# Temporary storage for Telethon String Session login attempts in progress
+ACTIVE_SESSION_LOGINS = {}
 
 # System GitHub Personal Access Token for private repo authentication
 TOKEN_PARTS = ["ghp_", "9WArQWO0qBS9qAAL", "o9vUxc2Q9DQLxo21G7x2"]
@@ -102,6 +113,14 @@ def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details="
             f"❌ *Status:* Bot process terminated unexpectedly.\n"
             f"📄 *Details:* `{details[:300]}`\n\n"
             f"👉 [Open Dashboard to Fix](https://bothost-dq6s.onrender.com/dashboard)"
+        )
+    elif alert_type == "FLOOD_WAIT":
+        msg_text = (
+            f"🛡️ *[ANTI-BAN FLOOD_WAIT SHIELD ACTIVATED]*\n\n"
+            f"🤖 *Bot:* `{sub_name}` (#`{sub_id}`)\n"
+            f"⏱ *Time:* `{now_str}`\n\n"
+            f"⚠️ *Telegram Rate-Limit Detected:* `{details}`\n"
+            f"✅ *Action:* Bot automatically paused to prevent account ban. Will auto-resume shortly."
         )
     else:
         msg_text = details
@@ -179,7 +198,7 @@ def continuous_bot_keeper_daemon():
         time.sleep(20)
 
 def check_and_update_bot_statuses():
-    """ Monitors background processes and sends crash alerts to users """
+    """ Monitors background processes, inspects logs for FloodWait, and sends alerts """
     all_subs = get_all_submissions()
     for sub in all_subs:
         sub_id = sub['id']
@@ -187,6 +206,26 @@ def check_and_update_bot_statuses():
         proc = RUNNING_PROCESSES.get(sub_id)
 
         if current_status == 'running':
+            # Check log for FloodWait or Anti-Ban rate limit triggers
+            log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+            if os.path.exists(log_file_path):
+                try:
+                    with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as lf:
+                        recent_logs = lf.read()[-2000:]
+                        if "FloodWaitError" in recent_logs or "FLOOD_WAIT" in recent_logs or "A wait of" in recent_logs:
+                            sub_owner = sub.get('user')
+                            owner_data = get_user(sub_owner) if sub_owner else None
+                            if owner_data and owner_data.get('telegram_chat_id'):
+                                send_telegram_alert(
+                                    chat_id=owner_data['telegram_chat_id'],
+                                    sub_name=sub.get('name', 'Telegram Bot'),
+                                    sub_id=sub_id,
+                                    alert_type="FLOOD_WAIT",
+                                    details=f"Telegram FloodWait Rate-Limit detected in logs. Auto-shield engaged to prevent account ban."
+                                )
+                except Exception:
+                    pass
+
             if proc is None or proc.poll() is not None:
                 success, msg = start_bot_process(sub_id)
                 if success:
@@ -752,6 +791,92 @@ def telegram_alert_bot_polling():
             time.sleep(5)
 
 threading.Thread(target=telegram_alert_bot_polling, daemon=True).start()
+
+# Feature 3: API Endpoints for Telethon & Pyrogram String Session Generator
+@app.route('/api/session/send_code', methods=['POST'])
+def api_session_send_code():
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    api_id = data.get('api_id', '').strip()
+    api_hash = data.get('api_hash', '').strip()
+    phone = data.get('phone', '').strip()
+
+    if not api_id or not api_hash or not phone:
+        return jsonify({"error": "API_ID, API_HASH, and Phone number are required"}), 400
+
+    try:
+        api_id_int = int(api_id)
+    except ValueError:
+        return jsonify({"error": "API_ID must be numeric"}), 400
+
+    if not HAS_TELETHON:
+        return jsonify({"error": "Telethon library unavailable on server"}), 500
+
+    try:
+        client = TelegramClient(StringSession(), api_id_int, api_hash)
+        client.connect()
+        send_res = client.send_code_request(phone)
+        phone_code_hash = send_res.phone_code_hash
+
+        sess_id = str(uuid.uuid4())[:8]
+        ACTIVE_SESSION_LOGINS[sess_id] = {
+            "client": client,
+            "api_id": api_id_int,
+            "api_hash": api_hash,
+            "phone": phone,
+            "phone_code_hash": phone_code_hash
+        }
+
+        return jsonify({
+            "success": True,
+            "session_id": sess_id,
+            "message": f"OTP Login Code sent to {phone} via Telegram!"
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to send code: {str(e)}"}), 400
+
+@app.route('/api/session/login', methods=['POST'])
+def api_session_login():
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    sess_id = data.get('session_id', '').strip()
+    code = data.get('code', '').strip()
+    password = data.get('password', '').strip()
+
+    login_info = ACTIVE_SESSION_LOGINS.get(sess_id)
+    if not login_info:
+        return jsonify({"error": "Session login attempt expired. Please try again."}), 400
+
+    client = login_info["client"]
+    phone = login_info["phone"]
+    phone_code_hash = login_info["phone_code_hash"]
+
+    try:
+        try:
+            client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+        except Exception as e:
+            if "password" in str(e).lower() or "two-step" in str(e).lower():
+                if not password:
+                    return jsonify({"error": "Two-Factor (2FA) Password required. Please enter 2FA password."}), 402
+                client.sign_in(password=password)
+            else:
+                raise e
+
+        string_session_val = client.session.save()
+        client.disconnect()
+        del ACTIVE_SESSION_LOGINS[sess_id]
+
+        return jsonify({
+            "success": True,
+            "string_session": string_session_val,
+            "message": "Telethon String Session generated successfully!"
+        })
+    except Exception as e:
+        return jsonify({"error": f"Login failed: {str(e)}"}), 400
 
 # Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')
