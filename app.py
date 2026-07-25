@@ -81,7 +81,7 @@ def auto_restart_approved_bots():
     all_subs = get_all_submissions()
     resumed_count = 0
     for sub in all_subs:
-        if sub.get('status') == 'running':
+        if sub.get('status') in ('running', 'approved'):
             sub_id = sub['id']
             proc = RUNNING_PROCESSES.get(sub_id)
             if proc is None or proc.poll() is not None:
@@ -89,14 +89,14 @@ def auto_restart_approved_bots():
                 success, msg = start_bot_process(sub_id)
                 if success:
                     resumed_count += 1
+                    update_submission_status(sub_id, 'running')
                 else:
                     print(f"[AUTO-RESTART] Warning for #{sub_id}: {msg}")
-                    update_submission_status(sub_id, 'approved')
 
     print(f"[AUTO-RESTART] Finished. Successfully resumed {resumed_count} active bot(s).")
 
 def check_and_update_bot_statuses():
-    """ Monitors background processes and marks crashed bots as 'crashed' """
+    """ Monitors background processes with auto-healing to prevent false crashes """
     all_subs = get_all_submissions()
     for sub in all_subs:
         sub_id = sub['id']
@@ -104,13 +104,14 @@ def check_and_update_bot_statuses():
         proc = RUNNING_PROCESSES.get(sub_id)
 
         if current_status == 'running':
-            sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
-            if not os.path.exists(sub_dir) or not os.listdir(sub_dir):
-                if sub.get('repo_url'):
-                    start_bot_process(sub_id)
+            # If process is not alive in memory, attempt auto-healing restart
+            if proc is None or proc.poll() is not None:
+                # Attempt silent auto-healing restart
+                success, msg = start_bot_process(sub_id)
+                if success:
                     continue
 
-            if proc is None or proc.poll() is not None:
+                # If start_bot_process fails, mark as crashed with log trace
                 exit_code = proc.poll() if proc else 'unknown'
                 update_submission_status(sub_id, 'crashed')
                 
