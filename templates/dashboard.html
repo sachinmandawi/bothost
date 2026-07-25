@@ -4,42 +4,21 @@
 
 {% block content %}
 <h1 class="page-title">Welcome, {{ session.get('user', 'User') }}</h1>
-<p class="page-sub">Deploy your bot via GitHub repository URL or file upload.</p>
+<p class="page-sub">Deploy your bot directly via GitHub repository URL.</p>
 
 <div class="grid-2">
   <div class="panel">
     <h2>&gt;_ Deploy a bot</h2>
-    <div class="tabs">
-      <button type="button" class="tab-btn active" data-target="tab-github">🔗 GitHub Repo URL</button>
-      <button type="button" class="tab-btn" data-target="tab-files">bot.py + requirements.txt</button>
-      <button type="button" class="tab-btn" data-target="tab-zip">Upload .zip</button>
-    </div>
 
-    <form method="POST" action="/upload" enctype="multipart/form-data" class="stack-form">
+    <form method="POST" action="/upload" class="stack-form">
       <input type="hidden" name="upload_mode" value="github" class="mode-input">
 
-      <div id="tab-github" class="tab-content active">
-        <label for="repo_url">GITHUB REPOSITORY URL *</label>
-        <input type="text" id="repo_url" name="repo_url" placeholder="https://github.com/username/my-telegram-bot">
+      <label for="repo_url">GITHUB REPOSITORY URL *</label>
+      <input type="text" id="repo_url" name="repo_url" placeholder="https://github.com/username/my-telegram-bot" required>
 
-        <label for="env_vars">ENVIRONMENT VARIABLES (.env - Optional)</label>
-        <textarea id="env_vars" name="env_vars" rows="4" style="background: #0d1315; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text); font-family: var(--mono); font-size: 0.85rem; outline: none; resize: vertical;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
-        <p class="hint">Instant auto-clone & zero file loss on server restarts!</p>
-      </div>
-
-      <div id="tab-files" class="tab-content">
-        <label for="bot_file">bot.py</label>
-        <input type="file" id="bot_file" name="bot_file" accept=".py">
-
-        <label for="requirements_file">requirements.txt</label>
-        <input type="file" id="requirements_file" name="requirements_file" accept=".txt">
-      </div>
-
-      <div id="tab-zip" class="tab-content">
-        <label for="zip_file">project.zip</label>
-        <input type="file" id="zip_file" name="zip_file" accept=".zip">
-        <p class="hint">Use this if your bot has multiple files/folders.</p>
-      </div>
+      <label for="env_vars">ENVIRONMENT VARIABLES (.env - Optional)</label>
+      <textarea id="env_vars" name="env_vars" rows="4" style="background: #0d1315; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text); font-family: var(--mono); font-size: 0.85rem; outline: none; resize: vertical;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
+      <p class="hint">Auto-clone & 24/7 continuous run on cloud restart!</p>
 
       <button type="submit" class="btn-primary">$ deploy bot for approval</button>
     </form>

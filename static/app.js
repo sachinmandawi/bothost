@@ -1,34 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Tab switching logic for deployment options
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  const tabContents = document.querySelectorAll('.tab-content');
-  const modeInputs = document.querySelectorAll('.mode-input');
-
-  tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      tabBtns.forEach(b => b.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
-      
-      const targetId = btn.dataset.target;
-      let mode = 'github';
-      if (targetId === 'tab-zip') {
-        mode = 'zip';
-      } else if (targetId === 'tab-files') {
-        mode = 'files';
-      }
-
-      modeInputs.forEach(input => {
-        input.value = mode;
-      });
-
-      btn.classList.add('active');
-      const targetElement = document.getElementById(targetId);
-      if (targetElement) {
-        targetElement.classList.add('active');
-      }
-    });
-  });
-
   // Password Visibility Toggle (Eye Icon)
   const togglePassBtns = document.querySelectorAll('.toggle-password');
   togglePassBtns.forEach(btn => {
@@ -44,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Client-side form validation before submitting
+  // Client-side form validation for GitHub Repo URL
   const forms = document.querySelectorAll('form');
   forms.forEach(form => {
     form.addEventListener('submit', (e) => {
@@ -53,18 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const repoUrl = document.getElementById('repo_url');
         if (repoUrl && (!repoUrl.value.trim() || !repoUrl.value.includes('github.com'))) {
           alert('Please enter a valid GitHub repository URL (e.g. https://github.com/user/repo).');
-          e.preventDefault();
-        }
-      } else if (activeMode === 'files') {
-        const botFile = document.getElementById('bot_file');
-        if (botFile && !botFile.files.length) {
-          alert('Please select a bot.py file to upload.');
-          e.preventDefault();
-        }
-      } else if (activeMode === 'zip') {
-        const zipFile = document.getElementById('zip_file');
-        if (zipFile && !zipFile.files.length) {
-          alert('Please select a project.zip file to upload.');
           e.preventDefault();
         }
       }
