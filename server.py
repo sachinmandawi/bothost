@@ -996,6 +996,87 @@ def api_session_login():
     except Exception as e:
         return jsonify({"error": f"Login failed: {str(e)}"}), 400
 
+# Feature 5: API Endpoints for User Single & Mass Multi-Bot Controls
+@app.route('/api/user/submission/<sub_id>/<action>', methods=['POST'])
+def api_user_submission_action(sub_id, action):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    all_subs = get_all_submissions()
+    sub_data = next((s for s in all_subs if s['id'] == sub_id), None)
+    if not sub_data:
+        return jsonify({"error": "Submission not found"}), 404
+
+    if sub_data['user'] != session['user'] and not session.get('is_admin'):
+        return jsonify({"error": "Forbidden"}), 403
+
+    if action == 'start':
+        success, msg = start_bot_process(sub_id)
+        if success:
+            update_submission_status(sub_id, 'running')
+            return jsonify({"success": True, "message": f"▶️ Bot #{sub_id} started successfully!"})
+        else:
+            update_submission_status(sub_id, 'crashed')
+            return jsonify({"error": f"Failed to start bot: {msg}"}), 400
+
+    elif action == 'restart':
+        success, msg = reload_bot_process_zero_downtime(sub_id)
+        if success:
+            return jsonify({"success": True, "message": f"⚡ Bot #{sub_id} hot-reloaded with 0-downtime!"})
+        else:
+            update_submission_status(sub_id, 'crashed')
+            return jsonify({"error": f"Failed to hot-reload bot: {msg}"}), 400
+
+    elif action == 'stop':
+        stop_bot_process(sub_id)
+        update_submission_status(sub_id, 'stopped')
+        return jsonify({"success": True, "message": f"⏹ Bot #{sub_id} stopped safely."})
+
+    return jsonify({"error": "Invalid action"}), 400
+
+@app.route('/api/user/mass_action/<action>', methods=['POST'])
+def api_user_mass_action(action):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    all_subs = get_all_submissions()
+    user_subs = [s for s in all_subs if s['user'] == session['user']]
+    if not user_subs:
+        return jsonify({"error": "No bot submissions found."}), 404
+
+    count = 0
+    if action == 'start_all':
+        for s in user_subs:
+            if s.get('status') != 'running':
+                success, _ = start_bot_process(s['id'])
+                if success:
+                    update_submission_status(s['id'], 'running')
+                    count += 1
+        return jsonify({"success": True, "message": f"▶️ Started {count} bots successfully!"})
+
+    elif action == 'restart_all':
+        for s in user_subs:
+            if s.get('status') == 'running':
+                success, _ = reload_bot_process_zero_downtime(s['id'])
+                if success:
+                    count += 1
+            else:
+                success, _ = start_bot_process(s['id'])
+                if success:
+                    update_submission_status(s['id'], 'running')
+                    count += 1
+        return jsonify({"success": True, "message": f"⚡ Hot-Reloaded {count} bots with 0-downtime!"})
+
+    elif action == 'stop_all':
+        for s in user_subs:
+            if s.get('status') == 'running':
+                stop_bot_process(s['id'])
+                update_submission_status(s['id'], 'stopped')
+                count += 1
+        return jsonify({"success": True, "message": f"⏹ Stopped {count} active bots safely."})
+
+    return jsonify({"error": "Invalid mass action"}), 400
+
 # Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')
 @app.route('/health')
