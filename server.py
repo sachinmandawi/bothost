@@ -511,7 +511,7 @@ def find_entry_python_file(sub_dir):
     if not os.path.exists(sub_dir):
         return None
 
-    priority_names = ['tg_bot.py', 'bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
+    priority_names = ['test_tgbot.py', 'tg_bot.py', 'bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
 
     for root, _, files in os.walk(sub_dir):
         for p in priority_names:
@@ -820,7 +820,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_logs_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
 
                             # 4. /restart command
                             elif text.startswith("/restart"):
@@ -829,7 +829,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_restart_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
 
                             # 5. /stop command
                             elif text.startswith("/stop"):
@@ -838,7 +838,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_stop_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/stop <submission_id>` (e.g. `/stop 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/stop <submission_id>` (e.g. `/stop 9bf1e3e7`)")
 
         except Exception as e:
             time.sleep(5)
