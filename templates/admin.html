@@ -45,7 +45,7 @@
               </td>
               <td>
                 <div class="actions">
-                  <button class="btn-mini btn-ghost" style="border-color: var(--border); color: var(--accent);" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">⚙️ Secrets</button>
+                  <button class="btn-mini btn-secrets" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">⚙️ Secrets</button>
                   
                   {% if sub.status == 'running' %}
                     <a href="/admin/review/{{ sub.id }}/stop" class="btn-mini btn-reject">Stop Bot</a>
@@ -101,7 +101,7 @@
 
           <div class="admin-card-files" style="display: flex; gap: 8px;">
             <button class="btn-mini btn-view" style="flex: 1; text-align: center;" onclick="viewSubmissionFiles('{{ sub.id }}')">📄 Inspect Code</button>
-            <button class="btn-mini btn-ghost" style="flex: 1; text-align: center; border-color: var(--border); color: var(--accent);" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">⚙️ Secrets (.env)</button>
+            <button class="btn-mini btn-secrets" style="flex: 1; text-align: center;" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">⚙️ Secrets (.env)</button>
           </div>
 
           <div class="admin-card-actions">

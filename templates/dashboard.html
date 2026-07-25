@@ -41,7 +41,7 @@
     {% endif %}
 
     <div style="display: flex; flex-direction: column; gap: 12px;">
-      <a href="https://t.me/{{ bot_username }}?start=connect_{{ session.get('user') }}" target="_blank" class="btn-primary" style="text-align: center; text-decoration: none; display: block; background: #0088cc; color: #fff; margin-top: 0;">
+      <a href="https://t.me/{{ bot_username }}?start=connect_{{ session.get('user') }}" target="_blank" class="btn-primary" style="text-align: center; text-decoration: none; display: block; background: #0088cc; color: #fff; margin-top: 0; box-shadow: 0 4px 15px rgba(0, 136, 204, 0.3);">
         ✈️ Connect via Telegram (1-Click)
       </a>
 
@@ -75,18 +75,18 @@
             <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
 
             <!-- Action Buttons for User -->
-            <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <button class="btn-mini btn-ghost" style="padding: 4px 10px; font-size: 0.75rem; border-color: var(--border); color: var(--accent);" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
+            <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button class="btn-mini btn-secrets" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
                 ⚙️ Secrets (.env)
               </button>
               
               {% if sub.status == 'crashed' %}
-                <button class="btn-mini btn-reject" style="padding: 4px 10px; font-size: 0.75rem;" onclick="viewUserLogs('{{ sub.id }}')">⚠️ View Crash Log</button>
+                <button class="btn-mini btn-reject" onclick="viewUserLogs('{{ sub.id }}')">⚠️ View Crash Log</button>
               {% elif sub.status == 'running' %}
-                <button class="btn-mini btn-view" style="padding: 4px 10px; font-size: 0.75rem;" onclick="viewUserLogs('{{ sub.id }}')">📄 View Live Logs</button>
+                <button class="btn-mini btn-view" onclick="viewUserLogs('{{ sub.id }}')">📄 View Live Logs</button>
               {% endif %}
 
-              <a href="/submission/{{ sub.id }}/delete" class="btn-mini btn-reject" style="padding: 4px 10px; font-size: 0.75rem;" onclick="return confirm('Are you sure you want to delete this submission?')">🗑️ Delete</a>
+              <a href="/submission/{{ sub.id }}/delete" class="btn-mini btn-reject" onclick="return confirm('Are you sure you want to delete this submission?')">🗑️ Delete</a>
             </div>
           </div>
           <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
