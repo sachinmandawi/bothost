@@ -1,42 +1,4 @@
 {
-  "users": {
-    "Kunal.soree": {
-      "password": "Kunal.soree",
-      "created_at": "2026-07-25 11:49:02"
-    },
-    "1fish2003y@gmail.com": {
-      "password": "vpD8EEdU5Z8qrsi",
-      "created_at": "2026-07-25 12:08:02"
-    },
-    "audit_user": {
-      "password": "password123",
-      "created_at": "2026-07-25 12:23:44"
-    }
-  },
-  "submissions": [
-    {
-      "id": "9e6ee81a",
-      "user": "1fish2003y@gmail.com",
-      "name": "bot.py + requirements.txt",
-      "mode": "files",
-      "files": [
-        "bot.py",
-        "requirements.txt"
-      ],
-      "status": "approved",
-      "created_at": "2026-07-25 12:21:15"
-    },
-    {
-      "id": "2a114108",
-      "user": "audit_user",
-      "name": "bot.py + requirements.txt",
-      "mode": "files",
-      "files": [
-        "bot.py",
-        "requirements.txt"
-      ],
-      "status": "rejected",
-      "created_at": "2026-07-25 12:23:44"
-    }
-  ]
+  "users": {},
+  "submissions": []
 }
