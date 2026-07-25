@@ -10,8 +10,15 @@ document.addEventListener('DOMContentLoaded', () => {
       tabContents.forEach(c => c.classList.remove('active'));
       
       const targetId = btn.dataset.target;
+      let mode = 'github';
+      if (targetId === 'tab-zip') {
+        mode = 'zip';
+      } else if (targetId === 'tab-files') {
+        mode = 'files';
+      }
+
       modeInputs.forEach(input => {
-        input.value = targetId === 'tab-zip' ? 'zip' : 'files';
+        input.value = mode;
       });
 
       btn.classList.add('active');
@@ -42,7 +49,13 @@ document.addEventListener('DOMContentLoaded', () => {
   forms.forEach(form => {
     form.addEventListener('submit', (e) => {
       const activeMode = form.querySelector('.mode-input')?.value;
-      if (activeMode === 'files') {
+      if (activeMode === 'github') {
+        const repoUrl = document.getElementById('repo_url');
+        if (repoUrl && (!repoUrl.value.trim() || !repoUrl.value.includes('github.com'))) {
+          alert('Please enter a valid GitHub repository URL (e.g. https://github.com/user/repo).');
+          e.preventDefault();
+        }
+      } else if (activeMode === 'files') {
         const botFile = document.getElementById('bot_file');
         if (botFile && !botFile.files.length) {
           alert('Please select a bot.py file to upload.');

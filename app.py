@@ -54,7 +54,7 @@ def auto_restart_approved_bots():
     AUTO_RESTART_INITIALIZED = True
 
     print("[AUTO-RESTART] Checking for active bots to resume after server boot/redeploy...")
-    time.sleep(2)
+    time.sleep(3)
     all_subs = get_all_submissions()
     resumed_count = 0
     for sub in all_subs:
@@ -67,7 +67,8 @@ def auto_restart_approved_bots():
                 if success:
                     resumed_count += 1
                 else:
-                    update_submission_status(sub_id, 'crashed')
+                    print(f"[AUTO-RESTART] Warning for #{sub_id}: {msg}")
+                    update_submission_status(sub_id, 'approved')
 
     print(f"[AUTO-RESTART] Finished. Successfully resumed {resumed_count} active bot(s).")
 
@@ -80,6 +81,13 @@ def check_and_update_bot_statuses():
         proc = RUNNING_PROCESSES.get(sub_id)
 
         if current_status == 'running':
+            sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+            if not os.path.exists(sub_dir) or not os.listdir(sub_dir):
+                # Try auto-recovery via git clone if repo_url exists
+                if sub.get('repo_url'):
+                    start_bot_process(sub_id)
+                    continue
+
             if proc is None or proc.poll() is not None:
                 exit_code = proc.poll() if proc else 'unknown'
                 update_submission_status(sub_id, 'crashed')
@@ -252,10 +260,32 @@ def find_entry_python_file(sub_dir):
 
 def start_bot_process(sub_id):
     """ Installs requirements and starts python script in background """
-    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
-    if not os.path.exists(sub_dir):
-        return False, "Upload folder does not exist on disk."
+    all_subs = get_all_submissions()
+    sub_data = None
+    for s in all_subs:
+        if s['id'] == sub_id:
+            sub_data = s
+            break
 
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+
+    # If GitHub repo URL deployment mode, clone or pull repo if missing
+    if sub_data and sub_data.get('repo_url'):
+        repo_url = sub_data.get('repo_url')
+        if not os.path.exists(sub_dir) or not os.listdir(sub_dir):
+            try:
+                os.makedirs(sub_dir, exist_ok=True)
+                subprocess.run(['git', 'clone', repo_url, sub_dir], capture_output=True, timeout=60)
+            except Exception as e:
+                print(f"Error cloning GitHub repo {repo_url}: {e}")
+
+        # Re-write .env if env_vars exist
+        if sub_data.get('env_vars'):
+            env_file = os.path.join(sub_dir, '.env')
+            with open(env_file, 'w', encoding='utf-8') as ef:
+                ef.write(sub_data['env_vars'])
+
+    # Auto-extract project.zip if present
     zip_path = os.path.join(sub_dir, 'project.zip')
     if os.path.exists(zip_path):
         try:
@@ -268,7 +298,7 @@ def start_bot_process(sub_id):
     log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
 
     if not python_entry_file or not os.path.exists(python_entry_file):
-        return False, "No Python script (.py) found in submission directory."
+        return False, "No Python script (.py) found in repository or directory."
 
     entry_dir = os.path.dirname(python_entry_file)
 
@@ -321,7 +351,7 @@ def stop_bot_process(sub_id):
 # Trigger auto-restart thread on server start
 threading.Thread(target=auto_restart_approved_bots, daemon=True).start()
 
-# Dedicated Ultra-lightweight Keep-Alive / Health Ping endpoint for cron-job.org
+# Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')
 @app.route('/health')
 def health_ping():
@@ -424,14 +454,46 @@ def upload():
     if 'user' not in session:
         return redirect(url_for('login'))
 
-    upload_mode = request.form.get('upload_mode', 'files')
+    upload_mode = request.form.get('upload_mode', 'github')
     sub_id = str(uuid.uuid4())[:8]
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     os.makedirs(sub_dir, exist_ok=True)
 
     saved_files = []
+    repo_url = None
+    env_vars = None
+    name = "Bot Project"
 
-    if upload_mode == 'files':
+    if upload_mode == 'github':
+        repo_url = request.form.get('repo_url', '').strip()
+        env_vars = request.form.get('env_vars', '').strip()
+
+        if not repo_url or not repo_url.startswith(('http://', 'https://')):
+            flash('Please enter a valid GitHub Repository URL.', 'error')
+            return redirect(url_for('dashboard'))
+
+        # Extract repo name
+        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+        name = f"GitHub: {repo_name}"
+
+        # Git clone repository
+        try:
+            res = subprocess.run(['git', 'clone', repo_url, sub_dir], capture_output=True, timeout=60)
+            if res.returncode != 0:
+                flash(f"Failed to clone repository: {res.stderr.decode('utf-8', errors='ignore')[:150]}", 'error')
+                return redirect(url_for('dashboard'))
+            saved_files.append('git-cloned')
+        except Exception as e:
+            flash(f"Git clone error: {str(e)}", 'error')
+            return redirect(url_for('dashboard'))
+
+        # Write .env if env_vars provided
+        if env_vars:
+            env_file = os.path.join(sub_dir, '.env')
+            with open(env_file, 'w', encoding='utf-8') as ef:
+                ef.write(env_vars)
+
+    elif upload_mode == 'files':
         bot_file = request.files.get('bot_file')
         req_file = request.files.get('requirements_file')
         
@@ -462,7 +524,7 @@ def upload():
         name = zip_file.filename if (zip_file and zip_file.filename) else "project.zip"
 
     if not saved_files:
-        flash('No files selected for upload.', 'error')
+        flash('No repository or files provided.', 'error')
         return redirect(url_for('dashboard'))
 
     submission = {
@@ -470,6 +532,8 @@ def upload():
         "user": session['user'],
         "name": name,
         "mode": upload_mode,
+        "repo_url": repo_url,
+        "env_vars": env_vars,
         "files": saved_files,
         "status": "pending",
         "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -477,7 +541,7 @@ def upload():
 
     add_submission(submission)
 
-    flash('Bot project submitted successfully! Under review.', 'success')
+    flash('GitHub Bot Repository deployed successfully! Under review.', 'success')
     return redirect(url_for('dashboard'))
 
 @app.route('/submission/<sub_id>/delete', methods=['GET', 'POST'])
@@ -564,6 +628,8 @@ def api_submission_files(sub_id):
     
     files_data = []
     for root, _, files in os.walk(sub_dir):
+        if '.git' in root:
+            continue
         for fname in files:
             if fname.endswith('.zip') or fname.endswith('.session-journal'):
                 continue
