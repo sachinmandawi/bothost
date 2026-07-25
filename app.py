@@ -316,7 +316,7 @@ def update_submission_status(sub_id, new_status, started_at=None):
 
     if mongo_db is not None:
         try:
-            mongo_db.submissions.update_one({"id": sub_id}, {"$set": update_fields})
+            mongo_db.submissions.update_one({"id": sub_id}, {"$set": {"status": new_status, "started_at": started_at or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}})
         except Exception as e:
             print("MongoDB update_submission_status error:", e)
 
@@ -513,6 +513,56 @@ def start_bot_process(sub_id):
     except Exception as e:
         return False, f"Failed to start bot process: {str(e)}"
 
+def reload_bot_process_zero_downtime(sub_id):
+    """ Executes Graceful Dual-Process Handoff for Zero-Downtime Hot Reloading """
+    print(f"[HOT-RELOAD] Initiating Zero-Downtime Hot Reload for bot #{sub_id}...")
+    old_proc = RUNNING_PROCESSES.get(sub_id)
+
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    python_entry_file = find_entry_python_file(sub_dir)
+    log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+
+    if not python_entry_file or not os.path.exists(python_entry_file):
+        return False, "Python entry file missing."
+
+    entry_dir = os.path.dirname(python_entry_file)
+    entry_basename = os.path.basename(python_entry_file)
+
+    try:
+        log_out = open(log_file_path, "a", encoding="utf-8")
+        start_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_out.write(f"\n--- [HOT-RELOAD ⚡] BOT ({entry_basename}) PATCHED AT {start_time_str} ---\n")
+        log_out.flush()
+
+        proc_env = os.environ.copy()
+        proc_env["PYTHONIOENCODING"] = "utf-8"
+
+        # 1. Launch NEW process in parallel
+        new_proc = subprocess.Popen(
+            [sys.executable, python_entry_file],
+            cwd=entry_dir,
+            env=proc_env,
+            stdout=log_out,
+            stderr=log_out,
+            creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
+        )
+
+        # 2. Wait 2 seconds for new process to initialize connection
+        time.sleep(2.0)
+
+        # 3. Gracefully terminate OLD process
+        if old_proc and old_proc.poll() is None:
+            try:
+                old_proc.terminate()
+            except Exception:
+                pass
+
+        RUNNING_PROCESSES[sub_id] = new_proc
+        update_submission_status(sub_id, 'running', started_at=start_time_str)
+        return True, f"⚡ Hot-Reloaded bot ({entry_basename}) with zero-downtime! (PID: {new_proc.pid})"
+    except Exception as e:
+        return False, f"Hot-reload error: {e}"
+
 def stop_bot_process(sub_id):
     """ Terminates running bot process if active """
     proc = RUNNING_PROCESSES.get(sub_id)
@@ -560,7 +610,7 @@ def handle_telegram_status_command(chat_id, user_info):
 
         keyboard_buttons.append([
             {"text": f"📄 Logs #{s['id']}", "callback_data": f"logs_{s['id']}"},
-            {"text": f"🔄 Restart #{s['id']}", "callback_data": f"restart_{s['id']}"},
+            {"text": f"⚡ Hot-Reload #{s['id']}", "callback_data": f"restart_{s['id']}"},
             {"text": f"⏹ Stop #{s['id']}", "callback_data": f"stop_{s['id']}"}
         ])
 
@@ -585,14 +635,13 @@ def handle_telegram_logs_command(chat_id, sub_id):
         send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"Error reading logs: {e}")
 
 def handle_telegram_restart_command(chat_id, sub_id):
-    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"🔄 *Restarting Bot #`{sub_id}`...*")
-    success, msg = start_bot_process(sub_id)
+    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"⚡ *Hot-Reloading Bot #`{sub_id}` with 0-downtime...*")
+    success, msg = reload_bot_process_zero_downtime(sub_id)
     if success:
-        update_submission_status(sub_id, 'running')
-        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"✅ *Bot #`{sub_id}` restarted successfully!* Status: 🟢 RUNNING")
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"✅ *Bot #`{sub_id}` hot-reloaded with 0-downtime!* Status: 🟢 RUNNING")
     else:
         update_submission_status(sub_id, 'crashed')
-        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"❌ *Failed to restart bot #`{sub_id}`:* `{msg}`")
+        send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"❌ *Failed to hot-reload bot #`{sub_id}`:* `{msg}`")
 
 def handle_telegram_stop_command(chat_id, sub_id):
     stop_bot_process(sub_id)
@@ -659,7 +708,7 @@ def telegram_alert_bot_polling():
                                 else:
                                     send_telegram_alert(
                                         chat_id=chat_id, sub_name="BotHost System", sub_id="SYSTEM", alert_type="INFO",
-                                        details="👋 *WELCOME TO BOTHOST ALERT BOT!*\n\nCommands Available:\n• /status - Check all your running bots\n• /logs `<id>` - View bot logs\n• /restart `<id>` - Restart bot\n• /stop `<id>` - Stop bot\n\nClick 'Connect via Telegram' on your BotHost Dashboard to link your account."
+                                        details="👋 *WELCOME TO BOTHOST ALERT BOT!*\n\nCommands Available:\n• /status - Check all your running bots\n• /logs `<id>` - View bot logs\n• /restart `<id>` - Hot-reload bot\n• /stop `<id>` - Stop bot\n\nClick 'Connect via Telegram' on your BotHost Dashboard to link your account."
                                     )
 
                             # Check user authentication for control commands
@@ -1012,16 +1061,15 @@ def api_submission_env(sub_id):
         new_env = data.get('env_vars', '').strip()
         update_submission_env_vars(sub_id, new_env)
 
-        # Auto-restart bot if it's currently running
+        # Zero-Downtime Hot-Reload if bot is currently running
         restarted = False
         if sub_data.get('status') == 'running':
-            stop_bot_process(sub_id)
-            success, _ = start_bot_process(sub_id)
+            success, _ = reload_bot_process_zero_downtime(sub_id)
             restarted = success
 
         return jsonify({
             "success": True,
-            "message": "Environment variables updated & bot restarted successfully!" if restarted else "Environment variables updated successfully!"
+            "message": "⚡ Hot-Reloaded with 0-Downtime!" if restarted else "Environment variables updated successfully!"
         })
 
     # GET method
