@@ -122,6 +122,14 @@ def send_telegram_alert(chat_id, sub_name, sub_id, alert_type="CRASH", details="
             f"⚠️ *Telegram Rate-Limit Detected:* `{details}`\n"
             f"✅ *Action:* Bot automatically paused to prevent account ban. Will auto-resume shortly."
         )
+    elif alert_type == "AUTO_DEPLOY":
+        msg_text = (
+            f"🔄 *[BOTHOST AUTO-DEPLOY]*\n\n"
+            f"🤖 *Bot:* `{sub_name}` (#`{sub_id}`)\n"
+            f"⏱ *Time:* `{now_str}`\n\n"
+            f"🚀 *New GitHub Code Detected:* Latest commits pulled automatically.\n"
+            f"⚡ *Status:* Bot hot-reloaded with 0-downtime!"
+        )
     else:
         msg_text = details
 
@@ -172,9 +180,50 @@ def get_authenticated_clone_url(repo_url):
         url = url.replace('https://github.com/', f'https://{SYSTEM_GITHUB_TOKEN}@github.com/')
     return url
 
+def check_and_auto_deploy_github_repos(sub):
+    """ Checks if GitHub repository has new commits and auto-pulls & hot-reloads """
+    sub_id = sub.get('id')
+    repo_url = sub.get('repo_url')
+    if not repo_url or sub.get('status') != 'running':
+        return
+
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    git_dir = os.path.join(sub_dir, '.git')
+    if not os.path.exists(git_dir):
+        return
+
+    try:
+        # Fetch latest commit info from GitHub
+        fetch_res = subprocess.run(['git', 'fetch', 'origin'], cwd=sub_dir, capture_output=True, timeout=30)
+        if fetch_res.returncode != 0:
+            return
+
+        local_head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=sub_dir, capture_output=True, text=True).stdout.strip()
+        remote_head = subprocess.run(['git', 'rev-parse', '@{u}'], cwd=sub_dir, capture_output=True, text=True).stdout.strip()
+
+        if local_head and remote_head and local_head != remote_head:
+            print(f"[AUTO-DEPLOY 🔄] New commits detected for bot #{sub_id} ({sub.get('name')})! Pulling & Hot-Reloading...")
+            pull_res = subprocess.run(['git', 'pull'], cwd=sub_dir, capture_output=True, timeout=30)
+            
+            # Hot reload bot process with 0 downtime
+            success, msg = reload_bot_process_zero_downtime(sub_id)
+            
+            # Send Telegram Auto-Deploy Alert
+            sub_owner = sub.get('user')
+            owner_data = get_user(sub_owner) if sub_owner else None
+            if owner_data and owner_data.get('telegram_chat_id'):
+                send_telegram_alert(
+                    chat_id=owner_data['telegram_chat_id'],
+                    sub_name=sub.get('name', 'Telegram Bot'),
+                    sub_id=sub_id,
+                    alert_type="AUTO_DEPLOY"
+                )
+    except Exception as e:
+        print(f"[AUTO-DEPLOY] Exception checking repo for #{sub_id}: {e}")
+
 def continuous_bot_keeper_daemon():
-    """ Continuous background daemon that ensures all approved & running bots stay online permanently """
-    print("[DAEMON] Starting 24/7 Continuous Bot Health & Auto-Resume Worker...")
+    """ Continuous background daemon that ensures all approved & running bots stay online permanently and auto-deploys GitHub updates """
+    print("[DAEMON] Starting 24/7 Continuous Bot Health & Auto-Deploy Worker...")
     while True:
         try:
             time.sleep(8)
@@ -183,6 +232,10 @@ def continuous_bot_keeper_daemon():
                 sub_id = sub.get('id')
                 status = sub.get('status')
                 
+                # Check Auto-Deploy GitHub Repos
+                if status == 'running' and sub.get('repo_url'):
+                    check_and_auto_deploy_github_repos(sub)
+
                 if status in ('running', 'approved'):
                     proc = RUNNING_PROCESSES.get(sub_id)
                     if proc is None or proc.poll() is not None:
