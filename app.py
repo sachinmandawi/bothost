@@ -91,6 +91,16 @@ def stop_bot_process(sub_id):
     if sub_id in RUNNING_PROCESSES:
         del RUNNING_PROCESSES[sub_id]
 
+# Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
+@app.route('/ping')
+@app.route('/health')
+def health_ping():
+    return jsonify({
+        "status": "ok",
+        "service": "BotHost Server",
+        "timestamp": datetime.datetime.now().isoformat()
+    }), 200
+
 @app.route('/')
 def index():
     if 'user' in session:
@@ -307,7 +317,7 @@ def api_submission_logs(sub_id):
     try:
         with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
             logs = f.read()
-        return jsonify({"logs": logs[-4000:]}) # return last 4000 chars
+        return jsonify({"logs": logs[-4000:]})
     except Exception as e:
         return jsonify({"logs": f"Error reading log file: {str(e)}"})
 
