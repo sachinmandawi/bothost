@@ -697,7 +697,7 @@ def reload_bot_process_zero_downtime(sub_id):
         return False, f"Hot-reload error: {e}"
 
 def stop_bot_process(sub_id):
-    """ Forcefully terminates running bot process if active and prevents zombie processes """
+    """ Forcefully terminates running bot process if active and searches OS process table for orphan process instances """
     proc = RUNNING_PROCESSES.get(sub_id)
     if proc:
         try:
@@ -716,6 +716,17 @@ def stop_bot_process(sub_id):
                 pass
     if sub_id in RUNNING_PROCESSES:
         del RUNNING_PROCESSES[sub_id]
+
+    # OS-Level Process Table Search to Kill any Orphan Process Instances for sub_id
+    try:
+        if sys.platform == 'win32':
+            ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*{sub_id}*' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}"
+            subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, timeout=5)
+        else:
+            ps_cmd = f"pkill -9 -f '{sub_id}'"
+            subprocess.run(ps_cmd, shell=True, capture_output=True, timeout=5)
+    except Exception as e:
+        print(f"OS Process Kill warning for #{sub_id}: {e}")
 
 # Start 24/7 Continuous Background Daemon Thread
 daemon_thread = threading.Thread(target=continuous_bot_keeper_daemon, daemon=True)
