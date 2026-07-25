@@ -5,10 +5,10 @@
 {% block content %}
 <a href="/dashboard" class="back-link">&larr; Back to User Dashboard</a>
 <h1 class="page-title" style="color: var(--warn);">&gt;_ Admin Review Portal</h1>
-<p class="page-sub">Review incoming bot submissions, inspect uploaded code, approve or reject for live deployment.</p>
+<p class="page-sub">Review incoming bot submissions, inspect uploaded code, approve & run bots, or view live execution logs.</p>
 
 <div class="panel">
-  <h2>Pending & Past Submissions</h2>
+  <h2>Pending & Active Bot Submissions</h2>
   {% if submissions %}
     <table class="admin-table">
       <thead>
@@ -37,11 +37,14 @@
             </td>
             <td>
               <div class="actions">
-                {% if sub.status != 'approved' %}
-                  <a href="/admin/review/{{ sub.id }}/approve" class="btn-mini btn-approve">Approve</a>
-                {% endif %}
-                {% if sub.status != 'rejected' %}
-                  <a href="/admin/review/{{ sub.id }}/reject" class="btn-mini btn-reject">Reject</a>
+                {% if sub.status == 'running' %}
+                  <a href="/admin/review/{{ sub.id }}/stop" class="btn-mini btn-reject">Stop Bot</a>
+                  <button class="btn-mini btn-view" onclick="viewBotLogs('{{ sub.id }}')">Logs</button>
+                {% else %}
+                  <a href="/admin/review/{{ sub.id }}/approve" class="btn-mini btn-approve">Approve & Run</a>
+                  {% if sub.status != 'rejected' %}
+                    <a href="/admin/review/{{ sub.id }}/reject" class="btn-mini btn-reject">Reject</a>
+                  {% endif %}
                 {% endif %}
               </div>
             </td>
@@ -54,7 +57,7 @@
   {% endif %}
 </div>
 
-<!-- Modal for inspecting code files -->
+<!-- Modal for inspecting code files & logs -->
 <div id="fileModal" class="modal-overlay">
   <div class="modal-body">
     <div class="modal-header">
@@ -62,7 +65,7 @@
       <button class="modal-close" onclick="closeModal()">&times;</button>
     </div>
     <div class="modal-content-area" id="modalContent">
-      <p>Loading files...</p>
+      <p>Loading...</p>
     </div>
   </div>
 </div>
@@ -95,6 +98,25 @@ function viewSubmissionFiles(subId) {
     })
     .catch(err => {
       content.innerHTML = `<p style="color: var(--danger);">Failed to load files: ${err}</p>`;
+    });
+}
+
+function viewBotLogs(subId) {
+  const modal = document.getElementById('fileModal');
+  const title = document.getElementById('modalTitle');
+  const content = document.getElementById('modalContent');
+  
+  title.innerText = `Execution Logs — Bot #${subId}`;
+  content.innerHTML = '<p style="color: var(--text-dim);">Fetching live process logs...</p>';
+  modal.classList.add('active');
+
+  fetch(`/api/submissions/${subId}/logs`)
+    .then(res => res.json())
+    .then(data => {
+      content.innerHTML = `<pre class="code-block" style="color: #3ddc84;">${data.logs || 'No logs output yet.'}</pre>`;
+    })
+    .catch(err => {
+      content.innerHTML = `<p style="color: var(--danger);">Failed to load logs: ${err}</p>`;
     });
 }
 

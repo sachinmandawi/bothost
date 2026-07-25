@@ -2,14 +2,22 @@ import os
 import json
 import uuid
 import datetime
+import subprocess
+import sys
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 
 app = Flask(__name__)
 app.secret_key = 'bothost-secret-key-super-secure'
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+LOGS_FOLDER = os.path.join(os.path.dirname(__file__), 'logs')
 DB_FILE = os.path.join(os.path.dirname(__file__), 'db.json')
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(LOGS_FOLDER, exist_ok=True)
+
+# In-memory dictionary to track running subprocesses: { sub_id: subprocess.Popen object }
+RUNNING_PROCESSES = {}
 
 def load_db():
     if not os.path.exists(DB_FILE):
@@ -28,6 +36,60 @@ def load_db():
 def save_db(data):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
+
+def start_bot_process(sub_id):
+    """ Installs requirements and starts bot.py in background """
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    bot_file = os.path.join(sub_dir, 'bot.py')
+    req_file = os.path.join(sub_dir, 'requirements.txt')
+    log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+
+    if not os.path.exists(bot_file):
+        return False, "bot.py not found in submission directory."
+
+    # Stop any previously running process for this submission
+    stop_bot_process(sub_id)
+
+    # 1. Install requirements if present
+    if os.path.exists(req_file):
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file],
+                           capture_output=True, timeout=60)
+        except Exception as e:
+            print(f"Warning: Pip install error for {sub_id}: {e}")
+
+    # 2. Launch bot.py as background process writing to log file
+    try:
+        log_out = open(log_file_path, "a", encoding="utf-8")
+        log_out.write(f"\n--- BOT STARTED AT {datetime.datetime.now()} ---\n")
+        log_out.flush()
+
+        proc = subprocess.Popen(
+            [sys.executable, bot_file],
+            cwd=sub_dir,
+            stdout=log_out,
+            stderr=log_out,
+            creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
+        )
+        RUNNING_PROCESSES[sub_id] = proc
+        return True, f"Bot started successfully (PID: {proc.pid})"
+    except Exception as e:
+        return False, f"Failed to start bot process: {str(e)}"
+
+def stop_bot_process(sub_id):
+    """ Terminates running bot process if active """
+    proc = RUNNING_PROCESSES.get(sub_id)
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    if sub_id in RUNNING_PROCESSES:
+        del RUNNING_PROCESSES[sub_id]
 
 @app.route('/')
 def index():
@@ -58,7 +120,6 @@ def login():
                 flash('Invalid username or password', 'error')
                 return render_template('login.html')
 
-        # Auto register / login fallback
         session['user'] = username
         session['is_admin'] = (username.lower() == 'admin')
         flash(f'Logged in as {username}', 'success')
@@ -187,18 +248,29 @@ def admin():
 def review_action(sub_id, action):
     db = load_db()
     updated = False
+    msg = ""
+
     for sub in db['submissions']:
         if sub['id'] == sub_id:
             if action in ('approve', 'approved'):
-                sub['status'] = 'approved'
+                sub['status'] = 'running'
+                success, msg = start_bot_process(sub_id)
+                if not success:
+                    sub['status'] = 'approved'
             elif action in ('reject', 'rejected'):
+                stop_bot_process(sub_id)
                 sub['status'] = 'rejected'
+                msg = f"Submission #{sub_id} marked as REJECTED."
+            elif action == 'stop':
+                stop_bot_process(sub_id)
+                sub['status'] = 'approved'
+                msg = f"Bot #{sub_id} process stopped."
             updated = True
             break
     
     if updated:
         save_db(db)
-        flash(f'Submission #{sub_id} marked as {action}.', 'success')
+        flash(msg or f'Submission #{sub_id} marked as {action}.', 'success')
     return redirect(url_for('admin'))
 
 @app.route('/api/submissions/<sub_id>/files')
@@ -226,6 +298,18 @@ def api_submission_files(sub_id):
         })
 
     return jsonify({"files": files_data})
+
+@app.route('/api/submissions/<sub_id>/logs')
+def api_submission_logs(sub_id):
+    log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+    if not os.path.exists(log_file_path):
+        return jsonify({"logs": "No execution logs generated yet."})
+    try:
+        with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            logs = f.read()
+        return jsonify({"logs": logs[-4000:]}) # return last 4000 chars
+    except Exception as e:
+        return jsonify({"logs": f"Error reading log file: {str(e)}"})
 
 if __name__ == '__main__':
     print("Starting BotHost Application Server on http://127.0.0.1:5000 ...")
