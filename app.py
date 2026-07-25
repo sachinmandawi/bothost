@@ -4,6 +4,7 @@ import uuid
 import datetime
 import subprocess
 import sys
+import zipfile
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 
 app = Flask(__name__)
@@ -37,15 +38,42 @@ def save_db(data):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
+def find_entry_python_file(sub_dir):
+    """ Finds the main python entry file in the submission folder """
+    # Priority list
+    priority_names = ['bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
+    for p in priority_names:
+        full_p = os.path.join(sub_dir, p)
+        if os.path.exists(full_p):
+            return full_p
+
+    # Search for any .py file in directory
+    for root, _, files in os.walk(sub_dir):
+        for f in files:
+            if f.endswith('.py') and not f.startswith('__'):
+                return os.path.join(root, f)
+
+    return None
+
 def start_bot_process(sub_id):
-    """ Installs requirements and starts bot.py in background """
+    """ Installs requirements and starts python script in background """
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
-    bot_file = os.path.join(sub_dir, 'bot.py')
+    
+    # Auto-extract project.zip if present
+    zip_path = os.path.join(sub_dir, 'project.zip')
+    if os.path.exists(zip_path):
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(sub_dir)
+        except Exception as e:
+            print(f"Warning extracting zip: {e}")
+
+    python_entry_file = find_entry_python_file(sub_dir)
     req_file = os.path.join(sub_dir, 'requirements.txt')
     log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
 
-    if not os.path.exists(bot_file):
-        return False, "bot.py not found in submission directory."
+    if not python_entry_file or not os.path.exists(python_entry_file):
+        return False, "No Python script (.py) found in submission directory."
 
     # Stop any previously running process for this submission
     stop_bot_process(sub_id)
@@ -54,25 +82,26 @@ def start_bot_process(sub_id):
     if os.path.exists(req_file):
         try:
             subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file],
-                           capture_output=True, timeout=60)
+                           capture_output=True, timeout=90)
         except Exception as e:
             print(f"Warning: Pip install error for {sub_id}: {e}")
 
-    # 2. Launch bot.py as background process writing to log file
+    # 2. Launch python script as background process writing to log file
     try:
         log_out = open(log_file_path, "a", encoding="utf-8")
-        log_out.write(f"\n--- BOT STARTED AT {datetime.datetime.now()} ---\n")
+        entry_basename = os.path.basename(python_entry_file)
+        log_out.write(f"\n--- BOT ({entry_basename}) STARTED AT {datetime.datetime.now()} ---\n")
         log_out.flush()
 
         proc = subprocess.Popen(
-            [sys.executable, bot_file],
-            cwd=sub_dir,
+            [sys.executable, python_entry_file],
+            cwd=os.path.dirname(python_entry_file),
             stdout=log_out,
             stderr=log_out,
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
         )
         RUNNING_PROCESSES[sub_id] = proc
-        return True, f"Bot started successfully (PID: {proc.pid})"
+        return True, f"Bot ({entry_basename}) started successfully (PID: {proc.pid})"
     except Exception as e:
         return False, f"Failed to start bot process: {str(e)}"
 
@@ -220,6 +249,14 @@ def upload():
             filepath = os.path.join(sub_dir, 'project.zip')
             zip_file.save(filepath)
             saved_files.append('project.zip')
+            
+            # Extract immediately for inspection
+            try:
+                with zipfile.ZipFile(filepath, 'r') as zip_ref:
+                    zip_ref.extractall(sub_dir)
+            except Exception as e:
+                print(f"Error unzipping project.zip: {e}")
+
         name = zip_file.filename if (zip_file and zip_file.filename) else "project.zip"
 
     if not saved_files:
@@ -240,7 +277,7 @@ def upload():
     db['submissions'].append(submission)
     save_db(db)
 
-    flash('Bot submitted successfully! Under review.', 'success')
+    flash('Bot project submitted successfully! Under review.', 'success')
     return redirect(url_for('dashboard'))
 
 @app.route('/admin')
@@ -290,22 +327,26 @@ def api_submission_files(sub_id):
         return jsonify({"error": "Submission directory not found"}), 404
     
     files_data = []
-    for fname in os.listdir(sub_dir):
-        fpath = os.path.join(sub_dir, fname)
-        content = ""
-        if fname.endswith(('.py', '.txt', '.json', '.md', '.html', '.css', '.js')):
-            try:
-                with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-            except Exception as e:
-                content = f"Error reading file: {e}"
-        else:
-            content = f"[{fname} - Binary file or compressed archive]"
-        
-        files_data.append({
-            "filename": fname,
-            "content": content
-        })
+    for root, _, files in os.walk(sub_dir):
+        for fname in files:
+            if fname.endswith('.zip') or fname.endswith('.session-journal'):
+                continue
+            rel_path = os.path.relpath(os.path.join(root, fname), sub_dir)
+            fpath = os.path.join(root, fname)
+            content = ""
+            if fname.endswith(('.py', '.txt', '.json', '.md', '.html', '.css', '.js', '.env', '.sh', '.bat')):
+                try:
+                    with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                except Exception as e:
+                    content = f"Error reading file: {e}"
+            else:
+                content = f"[{rel_path} - Binary file or session data]"
+            
+            files_data.append({
+                "filename": rel_path,
+                "content": content
+            })
 
     return jsonify({"files": files_data})
 
