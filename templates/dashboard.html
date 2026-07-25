@@ -19,6 +19,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: 14px 16px;
 }
 
 /* 3-Dot Action Dropdown Menu - Aligned Right & High Z-Index */
@@ -167,22 +168,22 @@
     <ul class="submission-list">
       {% for sub in submissions %}
         <li class="submission-item">
-          <!-- Left Content Info -->
+          <!-- Left Main Content: Title, Date, Mode & Side-by-Side Status Badges -->
           <div style="flex: 1; padding-right: 15px;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <span class="mono" style="font-weight: 600; font-size: 0.95rem;">{{ sub.name }}</span>
             </div>
-            <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
-          </div>
-
-          <!-- Middle Stacked Status Badges -->
-          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin-right: 15px;">
-            <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
-            {% if sub.status == 'running' %}
-              <span class="status status-running" style="font-size: 0.65rem; padding: 2px 7px;">
-                ⚡ {{ sub.uptime_str if sub.uptime_str else 'Online' }}
-              </span>
-            {% endif %}
+            
+            <!-- Side-by-Side Status Badges & Metadata directly below Bot Name -->
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px;">
+              <span class="tiny">Submitted: {{ sub.created_at }} &bull; Mode: {{ sub.mode }}</span>
+              <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
+              {% if sub.status == 'running' %}
+                <span class="status status-running" style="font-size: 0.68rem; padding: 2px 8px; border-radius: 12px;">
+                  ⚡ {{ sub.uptime_str if sub.uptime_str else 'Online' }}
+                </span>
+              {% endif %}
+            </div>
           </div>
 
           <!-- Right Aligned 3-Dots Action Dropdown Menu -->
