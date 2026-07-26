@@ -283,9 +283,9 @@
 
                     <div class="dots-divider"></div>
 
-                    <a href="/admin/review/{{ sub.id }}/delete" class="dots-menu-item danger-item" onclick="return confirm('Permanently delete submission #{{ sub.id }}?')">
+                    <button class="dots-menu-item danger-item" onclick="openDeleteConfirmModal('{{ sub.id }}', '{{ sub.name }}')">
                       🗑️ Delete Submission
-                    </a>
+                    </button>
                   </div>
                 </div>
               </td>
@@ -374,9 +374,9 @@
 
                 <div class="dots-divider"></div>
 
-                <a href="/admin/review/{{ sub.id }}/delete" class="dots-menu-item danger-item" onclick="return confirm('Permanently delete submission #{{ sub.id }}?')">
+                <button class="dots-menu-item danger-item" onclick="openDeleteConfirmModal('{{ sub.id }}', '{{ sub.name }}')">
                   🗑️ Delete Submission
-                </a>
+                </button>
               </div>
             </div>
           </div>
@@ -442,6 +442,43 @@
         <div style="background: #070a0b; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;">
           <span style="color: var(--text-dim); font-size: 0.72rem; display: block;">ACTIVE THREADS</span>
           <span id="statsThreadsText" style="font-family: var(--mono); color: var(--text); font-size: 0.85rem; font-weight: 600;">--</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- GitHub & Render Style Type-To-Confirm Safe Deletion Warning Modal -->
+<div id="deleteConfirmModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 520px; border: 1px solid rgba(255, 95, 87, 0.4); box-shadow: 0 10px 40px rgba(255, 95, 87, 0.2);">
+    <div class="modal-header" style="background: rgba(255, 95, 87, 0.1); border-bottom: 1px solid rgba(255, 95, 87, 0.25);">
+      <h3 style="color: var(--danger); display: flex; align-items: center; gap: 8px;">
+        ⚠️ Permanently Delete Bot?
+      </h3>
+      <button class="modal-close" onclick="closeDeleteConfirmModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" style="padding: 20px;">
+      
+      <div style="background: rgba(255, 95, 87, 0.08); border-left: 3px solid var(--danger); padding: 12px 14px; border-radius: 4px; margin-bottom: 16px;">
+        <span style="color: var(--danger); font-weight: 700; font-size: 0.85rem; display: block; margin-bottom: 4px;">THIS ACTION CANNOT BE UNDONE!</span>
+        <span style="color: var(--text-dim); font-size: 0.8rem; line-height: 1.4; display: block;">
+          Deleting <b id="delBotNameText" style="color: var(--text);">bot</b> will terminate its background process, wipe environment variables, and erase all execution logs permanently.
+        </span>
+      </div>
+
+      <div class="stack-form">
+        <label for="deleteConfirmInput" style="font-size: 0.82rem; color: var(--text-dim);">
+          To confirm, type <b id="delConfirmCodeText" style="color: var(--accent); font-family: var(--mono); user-select: all;">code</b> below:
+        </label>
+        
+        <input type="text" id="deleteConfirmInput" oninput="validateDeleteInput()" placeholder="Type string here to unlock..." style="background: #070a0b; border: 1px solid var(--border); font-family: var(--mono); color: var(--danger); font-weight: 700; outline: none;">
+        
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+          <button type="button" id="btnConfirmDelete" class="btn-primary" onclick="executePermanentDelete()" disabled style="flex: 1; margin-top: 0; background: var(--danger); opacity: 0.4; cursor: not-allowed; border-color: var(--danger);">
+            🔥 PERMANENTLY DELETE BOT
+          </button>
+          <button type="button" class="btn-ghost" onclick="closeDeleteConfirmModal()">Cancel</button>
         </div>
       </div>
 
@@ -690,9 +727,63 @@ function executeCommitRollback(subId, commitHash) {
     .catch(err => alert('Network error performing rollback: ' + err));
 }
 
-function closeGitRollbackModal() {
-  currentRollbackSubId = null;
-  document.getElementById('gitRollbackModal').classList.remove('active');
+/* Feature: GitHub & Render Style Type-To-Confirm Safe Deletion JS */
+let targetDeleteSubId = null;
+let targetDeleteExpectedCode = '';
+
+function openDeleteConfirmModal(subId, subName) {
+  targetDeleteSubId = subId;
+  const cleanName = (subName || '').replace('GitHub: ', '').trim();
+  targetDeleteExpectedCode = `delete ${cleanName || subId}`;
+
+  document.getElementById('delBotNameText').innerText = `"${subName || '#' + subId}"`;
+  document.getElementById('delConfirmCodeText').innerText = targetDeleteExpectedCode;
+  
+  const input = document.getElementById('deleteConfirmInput');
+  input.value = '';
+  input.style.borderColor = 'var(--border)';
+
+  const btn = document.getElementById('btnConfirmDelete');
+  btn.disabled = true;
+  btn.style.opacity = '0.4';
+  btn.style.cursor = 'not-allowed';
+
+  document.getElementById('deleteConfirmModal').classList.add('active');
+  setTimeout(() => input.focus(), 150);
+}
+
+function validateDeleteInput() {
+  const input = document.getElementById('deleteConfirmInput');
+  const btn = document.getElementById('btnConfirmDelete');
+  const val = input.value.trim();
+
+  if (val === targetDeleteExpectedCode || val === targetDeleteSubId) {
+    btn.disabled = false;
+    btn.style.opacity = '1.0';
+    btn.style.cursor = 'pointer';
+    input.style.borderColor = 'var(--danger)';
+  } else {
+    btn.disabled = true;
+    btn.style.opacity = '0.4';
+    btn.style.cursor = 'not-allowed';
+    input.style.borderColor = 'var(--border)';
+  }
+}
+
+function executePermanentDelete() {
+  if (!targetDeleteSubId) return;
+
+  const btn = document.getElementById('btnConfirmDelete');
+  btn.innerText = '🔥 DELETING BOT...';
+  btn.disabled = true;
+
+  window.location.href = `/admin/review/${targetDeleteSubId}/delete`;
+}
+
+function closeDeleteConfirmModal() {
+  targetDeleteSubId = null;
+  targetDeleteExpectedCode = '';
+  document.getElementById('deleteConfirmModal').classList.remove('active');
 }
 function toggleAdminDots(event, menuId) {
   event.stopPropagation();
