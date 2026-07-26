@@ -21,6 +21,12 @@ except ImportError:
     HAS_PYMONGO = False
 
 try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
+try:
     from telethon.sync import TelegramClient
     from telethon.sessions import StringSession
     HAS_TELETHON = True
@@ -1125,6 +1131,53 @@ def api_user_mass_action(action):
         return jsonify({"success": True, "message": f"⏹ Stopped {count} active bots safely."})
 
     return jsonify({"error": "Invalid mass action"}), 400
+
+# Option 3: API Endpoint for Real-Time Process RAM, CPU, PID & Stats Metrics
+@app.route('/api/submissions/<sub_id>/stats')
+def api_submission_stats(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    all_subs = get_all_submissions()
+    sub_data = next((s for s in all_subs if s['id'] == sub_id), None)
+    if not sub_data:
+        return jsonify({"error": "Submission not found"}), 404
+
+    status = sub_data.get('status', 'stopped')
+    uptime_str = sub_data.get('uptime_str', 'Offline')
+    proc = RUNNING_PROCESSES.get(sub_id)
+
+    pid = None
+    ram_mb = 0.0
+    ram_percent = 0.0
+    cpu_percent = 0.0
+    num_threads = 0
+
+    if status == 'running' and proc:
+        try:
+            pid = proc.pid
+            if HAS_PSUTIL:
+                p = psutil.Process(pid)
+                mem_info = p.memory_info()
+                ram_mb = round(mem_info.rss / (1024 * 1024), 2)
+                ram_percent = round((ram_mb / 512.0) * 100, 1)
+                cpu_percent = round(p.cpu_percent(interval=0.1), 1)
+                num_threads = p.num_threads()
+        except Exception:
+            pass
+
+    return jsonify({
+        "id": sub_id,
+        "name": sub_data.get('name'),
+        "status": status,
+        "uptime": uptime_str,
+        "pid": pid,
+        "ram_mb": ram_mb,
+        "ram_max_mb": 512.0,
+        "ram_percent": min(ram_percent, 100.0),
+        "cpu_percent": min(cpu_percent, 100.0),
+        "num_threads": num_threads
+    })
 
 # Feature 1: Real-Time Server-Sent Events (SSE) Log Streamer API Endpoint
 @app.route('/api/submissions/<sub_id>/stream_logs')

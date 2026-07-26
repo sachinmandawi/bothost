@@ -239,6 +239,9 @@
                 <div class="admin-dots-dropdown">
                   <button class="btn-dots" onclick="toggleAdminDots(event, 'admin-menu-{{ sub.id }}')">⋮</button>
                   <div id="admin-menu-{{ sub.id }}" class="admin-dots-menu">
+                    <button class="dots-menu-item" onclick="openSystemStatsModal('{{ sub.id }}', '{{ sub.name }}')">
+                      📊 System Stats (RAM/CPU)
+                    </button>
                     <button class="dots-menu-item" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
                       ⚙️ Secrets (.env)
                     </button>
@@ -315,6 +318,9 @@
             <div class="admin-dots-dropdown">
               <button class="btn-dots" onclick="toggleAdminDots(event, 'm-admin-menu-{{ sub.id }}')">⋮ Actions</button>
               <div id="m-admin-menu-{{ sub.id }}" class="admin-dots-menu">
+                <button class="dots-menu-item" onclick="openSystemStatsModal('{{ sub.id }}', '{{ sub.name }}')">
+                  📊 System Stats (RAM/CPU)
+                </button>
                 <button class="dots-menu-item" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
                   ⚙️ Secrets (.env)
                 </button>
@@ -358,6 +364,65 @@
   {% else %}
     <p class="empty-state">No submissions found in system database.</p>
   {% endif %}
+</div>
+
+<!-- Modal for Live System Resource Stats (RAM, CPU, PID, Threads) -->
+<div id="systemStatsModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 520px;">
+    <div class="modal-header">
+      <h3 id="statsModalTitle">📊 Live System Resource Metrics</h3>
+      <button class="modal-close" onclick="closeSystemStatsModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" style="padding: 20px;">
+      
+      <!-- Status Summary Card -->
+      <div style="display: flex; justify-content: space-between; align-items: center; background: #070a0b; border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 18px;">
+        <div>
+          <span style="color: var(--text-dim); font-size: 0.75rem; display: block;">PROCESS STATUS</span>
+          <span id="statsStatusText" style="font-family: var(--mono); font-weight: 700; color: var(--accent); font-size: 0.95rem;">LOADING...</span>
+        </div>
+        <div style="text-align: right;">
+          <span style="color: var(--text-dim); font-size: 0.75rem; display: block;">PROCESS PID</span>
+          <span id="statsPidText" style="font-family: var(--mono); font-weight: 600; color: var(--text); font-size: 0.9rem;">--</span>
+        </div>
+      </div>
+
+      <!-- RAM Usage Progress Meter -->
+      <div style="margin-bottom: 18px;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 6px;">
+          <span style="color: var(--text-dim); font-weight: 600;">🧠 RAM MEMORY USAGE</span>
+          <span id="statsRamValue" style="font-family: var(--mono); color: var(--accent); font-weight: 700;">0.0 MB / 512 MB (0%)</span>
+        </div>
+        <div style="background: #0d1315; border: 1px solid var(--border); border-radius: 8px; height: 14px; overflow: hidden; padding: 2px;">
+          <div id="statsRamBar" style="background: linear-gradient(90deg, #3ddc84, #1f7a4d); height: 100%; width: 0%; border-radius: 6px; transition: width 0.4s ease;"></div>
+        </div>
+      </div>
+
+      <!-- CPU Utilization Meter -->
+      <div style="margin-bottom: 18px;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 6px;">
+          <span style="color: var(--text-dim); font-weight: 600;">⚡ CPU UTILIZATION</span>
+          <span id="statsCpuValue" style="font-family: var(--mono); color: var(--warn); font-weight: 700;">0.0% CPU</span>
+        </div>
+        <div style="background: #0d1315; border: 1px solid var(--border); border-radius: 8px; height: 14px; overflow: hidden; padding: 2px;">
+          <div id="statsCpuBar" style="background: linear-gradient(90deg, #d9a441, #ff9f43); height: 100%; width: 0%; border-radius: 6px; transition: width 0.4s ease;"></div>
+        </div>
+      </div>
+
+      <!-- Secondary Info Grid (Uptime & Threads) -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div style="background: #070a0b; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;">
+          <span style="color: var(--text-dim); font-size: 0.72rem; display: block;">CONTINUOUS UPTIME</span>
+          <span id="statsUptimeText" style="font-family: var(--mono); color: var(--text); font-size: 0.85rem; font-weight: 600;">--</span>
+        </div>
+        <div style="background: #070a0b; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;">
+          <span style="color: var(--text-dim); font-size: 0.72rem; display: block;">ACTIVE THREADS</span>
+          <span id="statsThreadsText" style="font-family: var(--mono); color: var(--text); font-size: 0.85rem; font-weight: 600;">--</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
 </div>
 
 <!-- Modal for Interactive .env Secrets Manager -->
@@ -443,7 +508,71 @@
 
 {% block scripts %}
 <script>
-// Toggle Admin 3-Dots Action Dropdown Menu
+let statsTimerInterval = null;
+let currentStatsSubId = null;
+
+function openSystemStatsModal(subId, subName) {
+  const modal = document.getElementById('systemStatsModal');
+  const title = document.getElementById('statsModalTitle');
+  title.innerText = `📊 System Stats — ${subName || '#' + subId}`;
+  currentStatsSubId = subId;
+
+  modal.classList.add('active');
+  fetchSystemStats();
+
+  if (statsTimerInterval) clearInterval(statsTimerInterval);
+  statsTimerInterval = setInterval(fetchSystemStats, 2000);
+}
+
+function fetchSystemStats() {
+  if (!currentStatsSubId) return;
+
+  fetch(`/api/submissions/${currentStatsSubId}/stats`)
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById('statsStatusText').innerText = (data.status || 'OFFLINE').toUpperCase();
+      document.getElementById('statsStatusText').style.color = (data.status === 'running') ? 'var(--accent)' : 'var(--danger)';
+      document.getElementById('statsPidText').innerText = data.pid ? `PID: ${data.pid}` : 'None';
+      
+      // RAM Stats
+      const ramMb = data.ram_mb || 0;
+      const ramMax = data.ram_max_mb || 512.0;
+      const ramPct = data.ram_percent || 0;
+      document.getElementById('statsRamValue').innerText = `${ramMb} MB / ${ramMax} MB (${ramPct}%)`;
+      document.getElementById('statsRamBar').style.width = `${ramPct}%`;
+
+      // Dynamic RAM Bar Color Coding
+      const ramBar = document.getElementById('statsRamBar');
+      if (ramPct > 80) {
+        ramBar.style.background = 'linear-gradient(90deg, #ff5f57, #e06666)';
+      } else if (ramPct > 50) {
+        ramBar.style.background = 'linear-gradient(90deg, #ffd166, #d9a441)';
+      } else {
+        ramBar.style.background = 'linear-gradient(90deg, #3ddc84, #1f7a4d)';
+      }
+
+      // CPU Stats
+      const cpuPct = data.cpu_percent || 0;
+      document.getElementById('statsCpuValue').innerText = `${cpuPct}% CPU`;
+      document.getElementById('statsCpuBar').style.width = `${cpuPct}%`;
+
+      // Uptime & Threads
+      document.getElementById('statsUptimeText').innerText = data.uptime || 'Offline';
+      document.getElementById('statsThreadsText').innerText = data.num_threads ? `${data.num_threads} Threads` : '0 Threads';
+    })
+    .catch(err => {
+      document.getElementById('statsStatusText').innerText = 'ERROR FETCHING STATS';
+    });
+}
+
+function closeSystemStatsModal() {
+  if (statsTimerInterval) {
+    clearInterval(statsTimerInterval);
+    statsTimerInterval = null;
+  }
+  currentStatsSubId = null;
+  document.getElementById('systemStatsModal').classList.remove('active');
+}
 function toggleAdminDots(event, menuId) {
   event.stopPropagation();
   const allMenus = document.querySelectorAll('.admin-dots-menu');
