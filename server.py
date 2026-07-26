@@ -570,27 +570,51 @@ def save_json_db(data):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
-def find_entry_python_file(sub_dir):
-    """ Recursively searches for the main python entry file in the submission folder or subfolders """
+def find_entry_file(sub_dir):
+    """
+    Recursively searches for main entry file and detects runtime:
+    Returns (entry_filepath, runtime_type) where runtime_type is 'node' or 'python'
+    """
     if not os.path.exists(sub_dir):
-        return None
+        return None, None
 
+    # 1. Check for Node.js Project (Levanter, WhatsApp Baileys, Telegraf, etc.)
+    for root, _, files in os.walk(sub_dir):
+        if 'package.json' in files or 'index.js' in files or 'main.js' in files or 'bot.js' in files:
+            target_js = None
+            for fname in ['index.js', 'main.js', 'bot.js', 'app.js']:
+                if fname in files:
+                    target_js = os.path.join(root, fname)
+                    break
+            if not target_js:
+                for f in files:
+                    if f.endswith('.js') and not f.startswith('.'):
+                        target_js = os.path.join(root, f)
+                        break
+            if target_js:
+                return target_js, 'node'
+
+    # 2. Check for Python Project
     priority_names = ['test_tgbot.py', 'tg_bot.py', 'bot.py', 'AutoAd.py', 'main.py', 'app.py', 'run.py']
 
     for root, _, files in os.walk(sub_dir):
         for p in priority_names:
             if p in files:
-                return os.path.join(root, p)
+                return os.path.join(root, p), 'python'
 
     for root, _, files in os.walk(sub_dir):
         for f in files:
             if f.endswith('.py') and not f.startswith('__') and f != 'setup.py':
-                return os.path.join(root, f)
+                return os.path.join(root, f), 'python'
 
-    return None
+    return None, None
+
+def find_entry_python_file(sub_dir):
+    f, _ = find_entry_file(sub_dir)
+    return f
 
 def start_bot_process(sub_id):
-    """ Installs requirements and starts python script in background with pipe-enabled stdin for interactive input """
+    """ Installs dependencies and starts Python or Node.js bot in background with pipe-enabled stdin """
     all_subs = get_all_submissions()
     sub_data = None
     for s in all_subs:
@@ -623,32 +647,49 @@ def start_bot_process(sub_id):
         except Exception as e:
             print(f"Warning extracting zip: {e}")
 
-    python_entry_file = find_entry_python_file(sub_dir)
+    entry_file, runtime_type = find_entry_file(sub_dir)
     log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
 
-    if not python_entry_file or not os.path.exists(python_entry_file):
-        return False, "No Python script (.py) found in repository or directory."
+    if not entry_file or not os.path.exists(entry_file):
+        return False, "No Python script (.py) or Node.js script (.js / package.json) found in project directory."
 
-    entry_dir = os.path.dirname(python_entry_file)
-
-    req_file = os.path.join(entry_dir, 'requirements.txt')
-    if not os.path.exists(req_file):
-        req_file = os.path.join(sub_dir, 'requirements.txt')
+    entry_dir = os.path.dirname(entry_file)
+    entry_basename = os.path.basename(entry_file)
 
     stop_bot_process(sub_id)
 
-    if os.path.exists(req_file):
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file],
-                           capture_output=True, timeout=90)
-        except Exception as e:
-            print(f"Warning: Pip install error for {sub_id}: {e}")
+    # Node.js vs Python dependency installation & execution command configuration
+    if runtime_type == 'node':
+        pkg_file = os.path.join(entry_dir, 'package.json')
+        if not os.path.exists(pkg_file):
+            pkg_file = os.path.join(sub_dir, 'package.json')
+        
+        if os.path.exists(pkg_file):
+            try:
+                # Install npm packages for Levanter / Node.js bots
+                subprocess.run(["npm", "install", "--production"], cwd=os.path.dirname(pkg_file), capture_output=True, timeout=120)
+            except Exception as e:
+                print(f"Warning: npm install error for {sub_id}: {e}")
+
+        exec_cmd = ["node", entry_file]
+    else:
+        req_file = os.path.join(entry_dir, 'requirements.txt')
+        if not os.path.exists(req_file):
+            req_file = os.path.join(sub_dir, 'requirements.txt')
+
+        if os.path.exists(req_file):
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file],
+                               capture_output=True, timeout=90)
+            except Exception as e:
+                print(f"Warning: Pip install error for {sub_id}: {e}")
+
+        exec_cmd = [sys.executable, "-u", entry_file]
 
     try:
         log_out = open(log_file_path, "a", encoding="utf-8")
-        entry_basename = os.path.basename(python_entry_file)
         start_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_out.write(f"\n--- BOT ({entry_basename}) STARTED AT {start_time_str} ---\n")
+        log_out.write(f"\n--- BOT ({runtime_type.upper()}: {entry_basename}) STARTED AT {start_time_str} ---\n")
         log_out.flush()
 
         proc_env = os.environ.copy()
@@ -656,7 +697,7 @@ def start_bot_process(sub_id):
         proc_env["PYTHONUNBUFFERED"] = "1"
 
         proc = subprocess.Popen(
-            [sys.executable, "-u", python_entry_file],
+            exec_cmd,
             cwd=entry_dir,
             env=proc_env,
             stdin=subprocess.PIPE,
@@ -666,9 +707,9 @@ def start_bot_process(sub_id):
         )
         RUNNING_PROCESSES[sub_id] = proc
         update_submission_status(sub_id, 'running', started_at=start_time_str)
-        return True, f"Bot ({entry_basename}) started successfully (PID: {proc.pid})"
+        return True, f"Bot ({runtime_type.upper()}: {entry_basename}) started successfully (PID: {proc.pid})"
     except Exception as e:
-        return False, f"Failed to start bot process: {str(e)}"
+        return False, f"Failed to start {runtime_type} bot process: {str(e)}"
 
 def reload_bot_process_zero_downtime(sub_id):
     """ Executes Graceful Dual-Process Handoff for Zero-Downtime Hot Reloading """
