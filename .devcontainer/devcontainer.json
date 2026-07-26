@@ -1,0 +1,13 @@
+{
+  "name": "BotHost Cloud Environment",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
+  "postCreateCommand": "pip install -r requirements.txt",
+  "forwardPorts": [5000],
+  "portsAttributes": {
+    "5000": {
+      "label": "BotHost Application Web Server",
+      "onAutoForward": "notify",
+      "visibility": "public"
+    }
+  }
+}
