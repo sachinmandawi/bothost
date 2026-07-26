@@ -242,6 +242,18 @@
                     <button class="dots-menu-item" onclick="openSystemStatsModal('{{ sub.id }}', '{{ sub.name }}')">
                       📊 System Stats (RAM/CPU)
                     </button>
+                    {% if sub.status == 'running' %}
+                    <a href="/admin/review/{{ sub.id }}/pause" class="dots-menu-item" style="color: var(--warn);">
+                      ⏸ Pause Service (0% RAM)
+                    </a>
+                    {% elif sub.status == 'paused' or sub.status == 'stopped' %}
+                    <a href="/admin/review/{{ sub.id }}/approve" class="dots-menu-item" style="color: var(--accent);">
+                      ▶️ Resume / Start Service
+                    </a>
+                    {% endif %}
+                    <button class="dots-menu-item" onclick="openGitRollbackModal('{{ sub.id }}', '{{ sub.name }}')">
+                      🔄 Deployment History & Rollback
+                    </button>
                     <button class="dots-menu-item" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
                       ⚙️ Secrets (.env)
                     </button>
@@ -320,6 +332,18 @@
               <div id="m-admin-menu-{{ sub.id }}" class="admin-dots-menu">
                 <button class="dots-menu-item" onclick="openSystemStatsModal('{{ sub.id }}', '{{ sub.name }}')">
                   📊 System Stats (RAM/CPU)
+                </button>
+                {% if sub.status == 'running' %}
+                <a href="/admin/review/{{ sub.id }}/pause" class="dots-menu-item" style="color: var(--warn);">
+                  ⏸ Pause Service (0% RAM)
+                </a>
+                {% elif sub.status == 'paused' or sub.status == 'stopped' %}
+                <a href="/admin/review/{{ sub.id }}/approve" class="dots-menu-item" style="color: var(--accent);">
+                  ▶️ Resume / Start Service
+                </a>
+                {% endif %}
+                <button class="dots-menu-item" onclick="openGitRollbackModal('{{ sub.id }}', '{{ sub.name }}')">
+                  🔄 Deployment History & Rollback
                 </button>
                 <button class="dots-menu-item" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
                   ⚙️ Secrets (.env)
@@ -419,6 +443,24 @@
           <span style="color: var(--text-dim); font-size: 0.72rem; display: block;">ACTIVE THREADS</span>
           <span id="statsThreadsText" style="font-family: var(--mono); color: var(--text); font-size: 0.85rem; font-weight: 600;">--</span>
         </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal for Render-Style 1-Click Rollback & Deployment History -->
+<div id="gitRollbackModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 580px;">
+    <div class="modal-header">
+      <h3 id="rollbackModalTitle">🔄 Deployment History & 1-Click Rollback</h3>
+      <button class="modal-close" onclick="closeGitRollbackModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" style="padding: 20px;">
+      <p style="color: var(--text-dim); font-size: 0.82rem; margin-top: 0;">Select any past GitHub commit below to instantly rollback your bot code & hot-reload with zero downtime.</p>
+      
+      <div id="commitsContainer" style="display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; padding-right: 4px;">
+        <div style="text-align: center; color: var(--text-dim); padding: 20px;">Fetching commit history...</div>
       </div>
 
     </div>
@@ -572,6 +614,85 @@ function closeSystemStatsModal() {
   }
   currentStatsSubId = null;
   document.getElementById('systemStatsModal').classList.remove('active');
+}
+
+/* Feature 1: Render-Style 1-Click Rollback & Deployment History JS */
+let currentRollbackSubId = null;
+
+function openGitRollbackModal(subId, subName) {
+  currentRollbackSubId = subId;
+  const modal = document.getElementById('gitRollbackModal');
+  const title = document.getElementById('rollbackModalTitle');
+  title.innerText = `🔄 Deployment History — ${subName || '#' + subId}`;
+  
+  modal.classList.add('active');
+  fetchGitCommits(subId);
+}
+
+function fetchGitCommits(subId) {
+  const container = document.getElementById('commitsContainer');
+  container.innerHTML = '<div style="text-align: center; color: var(--text-dim); padding: 20px;">Fetching commit history...</div>';
+
+  fetch(`/api/submissions/${subId}/commits`)
+    .then(res => res.json())
+    .then(data => {
+      if (!data.is_git || !data.commits || data.commits.length === 0) {
+        container.innerHTML = '<div style="text-align: center; color: var(--warn); padding: 20px;">No Git deployment history available for this zip/upload bot.</div>';
+        return;
+      }
+
+      let html = '';
+      data.commits.forEach((c, idx) => {
+        const isLatest = (idx === 0);
+        html += `
+          <div style="background: #070a0b; border: 1px solid ${isLatest ? 'var(--accent-dim)' : 'var(--border)'}; border-radius: 8px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+            <div style="flex: 1;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="background: rgba(61,220,132,0.15); color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 0.78rem; padding: 2px 6px; border-radius: 4px;">${c.hash}</span>
+                ${isLatest ? '<span style="background: var(--accent); color: #000; font-size: 0.65rem; font-weight: 800; padding: 1px 6px; border-radius: 10px;">CURRENT HEAD</span>' : ''}
+              </div>
+              <div style="color: var(--text); font-size: 0.88rem; font-weight: 500;">${c.message}</div>
+              <div style="color: var(--text-dim); font-size: 0.75rem; margin-top: 4px;">By <b>${c.author}</b> • ${c.time}</div>
+            </div>
+            ${!isLatest ? `<button type="button" class="btn-ghost" onclick="executeCommitRollback('${subId}', '${c.hash}')" style="padding: 6px 12px; font-size: 0.78rem; color: var(--warn); border-color: rgba(255,193,7,0.4);">⏪ Rollback</button>` : ''}
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    })
+    .catch(err => {
+      container.innerHTML = '<div style="text-align: center; color: var(--danger); padding: 20px;">Error fetching commit history.</div>';
+    });
+}
+
+function executeCommitRollback(subId, commitHash) {
+  if (!confirm(`Are you sure you want to ROLLBACK bot #${subId} to commit [${commitHash}]?`)) return;
+
+  const container = document.getElementById('commitsContainer');
+  container.innerHTML = `<div style="text-align: center; color: var(--accent); padding: 20px;">🔄 Rolling back to commit [${commitHash}] & hot-reloading with zero downtime...</div>`;
+
+  fetch(`/api/submissions/${subId}/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commit_hash: commitHash })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        alert(data.message);
+        closeGitRollbackModal();
+        window.location.reload();
+      } else {
+        alert('Rollback Error: ' + (data.error || 'Failed'));
+        fetchGitCommits(subId);
+      }
+    })
+    .catch(err => alert('Network error performing rollback: ' + err));
+}
+
+function closeGitRollbackModal() {
+  currentRollbackSubId = null;
+  document.getElementById('gitRollbackModal').classList.remove('active');
 }
 function toggleAdminDots(event, menuId) {
   event.stopPropagation();

@@ -242,7 +242,6 @@ def check_and_auto_deploy_github_repos(sub):
         return
 
     try:
-        # Fetch latest commit info from GitHub
         fetch_res = subprocess.run(['git', 'fetch', 'origin'], cwd=sub_dir, capture_output=True, timeout=30)
         if fetch_res.returncode != 0:
             return
@@ -285,7 +284,7 @@ def continuous_bot_keeper_daemon():
                 if status == 'running' and sub.get('repo_url'):
                     check_and_auto_deploy_github_repos(sub)
 
-                # ONLY auto-resume if status is explicitly 'running' (Do NOT auto-resume if 'stopped' or 'rejected')
+                # ONLY auto-resume if status is explicitly 'running' (Do NOT auto-resume if 'stopped', 'paused', or 'rejected')
                 if status == 'running':
                     proc = RUNNING_PROCESSES.get(sub_id)
                     if proc is None or proc.poll() is not None:
@@ -309,7 +308,6 @@ def check_and_update_bot_statuses():
         proc = RUNNING_PROCESSES.get(sub_id)
 
         if current_status == 'running':
-            # Check log for FloodWait or Anti-Ban rate limit triggers
             log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
             if os.path.exists(log_file_path):
                 try:
@@ -358,6 +356,7 @@ def get_user(username):
                     "password": u["password"],
                     "is_admin": u.get("is_admin", False),
                     "telegram_chat_id": u.get("telegram_chat_id", ""),
+                    "env_presets": u.get("env_presets", ""),
                     "created_at": u.get("created_at", "")
                 }
         except Exception as e:
@@ -392,14 +391,14 @@ def create_user(username, password, is_admin=False):
         try:
             mongo_db.users.update_one(
                 {"username": username},
-                {"$set": {"username": username, "password": password, "is_admin": is_admin, "created_at": now_str}},
+                {"$set": {"username": username, "password": password, "is_admin": is_admin, "env_presets": "", "created_at": now_str}},
                 upsert=True
             )
         except Exception as e:
             print("MongoDB create_user error:", e)
 
     db = load_json_db()
-    db["users"][username] = {"password": password, "is_admin": is_admin, "telegram_chat_id": "", "created_at": now_str}
+    db["users"][username] = {"password": password, "is_admin": is_admin, "telegram_chat_id": "", "env_presets": "", "created_at": now_str}
     save_json_db(db)
 
 def update_user_telegram_chat_id(username, chat_id):
@@ -416,6 +415,22 @@ def update_user_telegram_chat_id(username, chat_id):
     db = load_json_db()
     if username in db.get("users", {}):
         db["users"][username]["telegram_chat_id"] = str(chat_id)
+        save_json_db(db)
+
+def update_user_env_presets(username, env_presets):
+    """ Save Render-like Shared Environment Variable Presets for user """
+    if mongo_db is not None:
+        try:
+            mongo_db.users.update_one(
+                {"username": username},
+                {"$set": {"env_presets": env_presets}}
+            )
+        except Exception as e:
+            print("MongoDB update_user_env_presets error:", e)
+
+    db = load_json_db()
+    if username in db.get("users", {}):
+        db["users"][username]["env_presets"] = env_presets
         save_json_db(db)
 
 def get_all_submissions():
@@ -485,7 +500,6 @@ def update_submission_env_vars(sub_id, new_env_vars):
             break
     save_json_db(db)
 
-    # Write to local .env file in submission directory
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     if os.path.exists(sub_dir):
         env_file = os.path.join(sub_dir, '.env')
@@ -524,7 +538,7 @@ def load_json_db():
     if not os.path.exists(DB_FILE):
         data = {
             "users": {
-                "sachinmandawi": {"password": "sachinmandawi", "is_admin": True, "telegram_chat_id": "", "created_at": "2026-07-25 13:00:00"}
+                "sachinmandawi": {"password": "sachinmandawi", "is_admin": True, "telegram_chat_id": "", "env_presets": "", "created_at": "2026-07-25 13:00:00"}
             },
             "submissions": []
         }
@@ -544,6 +558,7 @@ def load_json_db():
                     "password": "sachinmandawi",
                     "is_admin": True,
                     "telegram_chat_id": "",
+                    "env_presets": "",
                     "created_at": "2026-07-25 13:00:00"
                 }
                 save_json_db(data)
@@ -585,7 +600,6 @@ def start_bot_process(sub_id):
 
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
 
-    # If GitHub repo URL deployment mode, clone or pull repo if missing
     if sub_data and sub_data.get('repo_url'):
         repo_url = sub_data.get('repo_url')
         clone_url = get_authenticated_clone_url(repo_url)
@@ -681,7 +695,6 @@ def reload_bot_process_zero_downtime(sub_id):
         proc_env["PYTHONIOENCODING"] = "utf-8"
         proc_env["PYTHONUNBUFFERED"] = "1"
 
-        # 1. Launch NEW process in parallel
         new_proc = subprocess.Popen(
             [sys.executable, "-u", python_entry_file],
             cwd=entry_dir,
@@ -692,10 +705,8 @@ def reload_bot_process_zero_downtime(sub_id):
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
         )
 
-        # 2. Wait 2 seconds for new process to initialize connection
         time.sleep(2.0)
 
-        # 3. Gracefully terminate OLD process
         if old_proc and old_proc.poll() is None:
             try:
                 old_proc.terminate()
@@ -733,7 +744,6 @@ def stop_bot_process(sub_id):
     if sub_id in RUNNING_PROCESSES:
         del RUNNING_PROCESSES[sub_id]
 
-    # OS-Level Process Table Search to Kill any Orphan Process Instances for sub_id
     try:
         if sys.platform == 'win32':
             ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*{sub_id}*' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}"
@@ -779,7 +789,6 @@ def build_telegram_status_payload(username):
             {"text": f"📄 Logs #{s['id']}", "callback_data": f"logs_{s['id']}"}
         ]
 
-        # Dynamic Start / Stop / Hot-Reload Button Toggle
         if is_running:
             row_buttons.append({"text": f"⚡ Hot-Reload #{s['id']}", "callback_data": f"restart_{s['id']}"})
             row_buttons.append({"text": f"⏹ Stop #{s['id']}", "callback_data": f"stop_{s['id']}"})
@@ -822,7 +831,6 @@ def handle_telegram_restart_command(chat_id, sub_id, message_id=None):
         update_submission_status(sub_id, 'crashed')
         send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"❌ *Failed to hot-reload bot #`{sub_id}`:* `{msg}`")
 
-    # Dynamic Telegram Keyboard Update
     user_record = get_user_by_telegram_chat_id(chat_id)
     if user_record and message_id:
         msg_text, reply_markup = build_telegram_status_payload(user_record['username'])
@@ -837,7 +845,6 @@ def handle_telegram_start_command_action(chat_id, sub_id, message_id=None):
         update_submission_status(sub_id, 'crashed')
         send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"❌ *Failed to start bot #`{sub_id}`:* `{msg}`")
 
-    # Dynamic Telegram Keyboard Update
     user_record = get_user_by_telegram_chat_id(chat_id)
     if user_record and message_id:
         msg_text, reply_markup = build_telegram_status_payload(user_record['username'])
@@ -848,13 +855,11 @@ def handle_telegram_stop_command(chat_id, sub_id, message_id=None):
     stop_bot_process(sub_id)
     send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details=f"⏹ *Bot #`{sub_id}` stopped safely.* Status: 🔴 STOPPED")
 
-    # Dynamic Telegram Keyboard Update
     user_record = get_user_by_telegram_chat_id(chat_id)
     if user_record and message_id:
         msg_text, reply_markup = build_telegram_status_payload(user_record['username'])
         edit_telegram_message_text(chat_id, message_id, msg_text, reply_markup)
 
-# Background Polling Worker for @BotHostAlertBot Commands & Callbacks
 def telegram_alert_bot_polling():
     if not ALERT_BOT_TOKEN:
         return
@@ -870,7 +875,6 @@ def telegram_alert_bot_polling():
                     for update in data.get("result", []):
                         last_update_id = max(last_update_id, update.get("update_id", 0))
 
-                        # Handle Dynamic Inline Keyboard Callback Buttons
                         if "callback_query" in update:
                             cb = update["callback_query"]
                             cb_id = cb.get("id")
@@ -894,7 +898,6 @@ def telegram_alert_bot_polling():
                                 sub_id = cb_data.replace("stop_", "")
                                 handle_telegram_stop_command(cb_chat_id, sub_id, cb_msg_id)
 
-                        # Handle Regular Commands (/start, /status, /logs, /restart, /stop)
                         if "message" in update:
                             message = update.get("message", {})
                             text = message.get("text", "").strip()
@@ -903,7 +906,6 @@ def telegram_alert_bot_polling():
                             if not text or not chat_id:
                                 continue
 
-                            # 1. /start command
                             if text.startswith("/start"):
                                 parts = text.split()
                                 if len(parts) > 1 and parts[1].startswith("connect_"):
@@ -923,17 +925,14 @@ def telegram_alert_bot_polling():
                                         details="👋 *WELCOME TO BOTHOST ALERT BOT!*\n\nCommands Available:\n• /status - Check all your running bots\n• /logs `<id>` - View bot logs\n• /restart `<id>` - Hot-reload bot\n• /stop `<id>` - Stop bot\n\nClick 'Connect via Telegram' on your BotHost Dashboard to link your account."
                                     )
 
-                            # Check user authentication for control commands
                             user_record = get_user_by_telegram_chat_id(chat_id)
 
-                            # 2. /status or /bots command
                             if text in ("/status", "/bots"):
                                 if user_record:
                                     handle_telegram_status_command(chat_id, user_record)
                                 else:
                                     send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="⚠️ *Telegram Account Not Linked.*\nPlease click 'Connect via Telegram' on your BotHost Dashboard first.")
 
-                            # 3. /logs command
                             elif text.startswith("/logs"):
                                 parts = text.split()
                                 if len(parts) > 1:
@@ -942,7 +941,6 @@ def telegram_alert_bot_polling():
                                 else:
                                     send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
 
-                            # 4. /restart command
                             elif text.startswith("/restart"):
                                 parts = text.split()
                                 if len(parts) > 1:
@@ -951,7 +949,6 @@ def telegram_alert_bot_polling():
                                 else:
                                     send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
 
-                            # 5. /stop command
                             elif text.startswith("/stop"):
                                 parts = text.split()
                                 if len(parts) > 1:
@@ -1051,7 +1048,7 @@ def api_session_login():
     except Exception as e:
         return jsonify({"error": f"Login failed: {str(e)}"}), 400
 
-# Feature 5: API Endpoints for User Single & Mass Multi-Bot Controls
+# Feature 4: Instant Service Suspend / Pause Mode (Render Pause)
 @app.route('/api/user/submission/<sub_id>/<action>', methods=['POST'])
 def api_user_submission_action(sub_id, action):
     if 'user' not in session:
@@ -1065,11 +1062,11 @@ def api_user_submission_action(sub_id, action):
     if sub_data['user'] != session['user'] and not session.get('is_admin'):
         return jsonify({"error": "Forbidden"}), 403
 
-    if action == 'start':
+    if action == 'start' or action == 'resume':
         success, msg = start_bot_process(sub_id)
         if success:
             update_submission_status(sub_id, 'running')
-            return jsonify({"success": True, "message": f"▶️ Bot #{sub_id} started successfully!"})
+            return jsonify({"success": True, "message": f"▶️ Bot #{sub_id} resumed & running!"})
         else:
             update_submission_status(sub_id, 'crashed')
             return jsonify({"error": f"Failed to start bot: {msg}"}), 400
@@ -1081,6 +1078,11 @@ def api_user_submission_action(sub_id, action):
         else:
             update_submission_status(sub_id, 'crashed')
             return jsonify({"error": f"Failed to hot-reload bot: {msg}"}), 400
+
+    elif action == 'pause':
+        update_submission_status(sub_id, 'paused')
+        stop_bot_process(sub_id)
+        return jsonify({"success": True, "message": f"⏸ Bot #{sub_id} service suspended & hibernated (0% CPU/RAM)."})
 
     elif action == 'stop':
         update_submission_status(sub_id, 'stopped')
@@ -1132,6 +1134,87 @@ def api_user_mass_action(action):
 
     return jsonify({"error": "Invalid mass action"}), 400
 
+# Feature 2: Shared Environment Variable Presets (Render Env Groups) API Endpoints
+@app.route('/api/user/env_presets', methods=['GET', 'POST'])
+def api_user_env_presets():
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    username = session['user']
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        presets = data.get('env_presets', '').strip()
+        update_user_env_presets(username, presets)
+        return jsonify({"success": True, "message": "📑 Shared Environment Presets saved successfully!"})
+
+    user_info = get_user(username)
+    return jsonify({"env_presets": user_info.get('env_presets', '') if user_info else ''})
+
+# Feature 1: Render-Style 1-Click Rollback & Deployment History API Endpoints
+@app.route('/api/submissions/<sub_id>/commits')
+def api_submission_commits(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    git_dir = os.path.join(sub_dir, '.git')
+    if not os.path.exists(git_dir):
+        return jsonify({"commits": [], "is_git": False})
+
+    try:
+        # Fetch last 8 Git commits
+        res = subprocess.run(
+            ['git', 'log', '-n', '8', '--pretty=format:%h|%s|%an|%cr'],
+            cwd=sub_dir, capture_output=True, text=True, timeout=10
+        )
+        if res.returncode != 0:
+            return jsonify({"commits": [], "is_git": True, "error": res.stderr})
+
+        commits_list = []
+        lines = res.stdout.strip().splitlines()
+        for line in lines:
+            parts = line.split('|')
+            if len(parts) >= 4:
+                commits_list.append({
+                    "hash": parts[0],
+                    "message": parts[1],
+                    "author": parts[2],
+                    "time": parts[3]
+                })
+
+        return jsonify({"commits": commits_list, "is_git": True})
+    except Exception as e:
+        return jsonify({"commits": [], "is_git": True, "error": str(e)})
+
+@app.route('/api/submissions/<sub_id>/rollback', methods=['POST'])
+def api_submission_rollback(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    commit_hash = data.get('commit_hash', '').strip()
+    if not commit_hash:
+        return jsonify({"error": "Commit hash is required for rollback."}), 400
+
+    sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
+    if not os.path.exists(sub_dir):
+        return jsonify({"error": "Submission directory not found"}), 404
+
+    try:
+        # Execute hard git reset to target commit hash
+        res = subprocess.run(['git', 'reset', '--hard', commit_hash], cwd=sub_dir, capture_output=True, text=True, timeout=15)
+        if res.returncode != 0:
+            return jsonify({"error": f"Git rollback failed: {res.stderr[:150]}"}), 400
+
+        # Hot reload process with rolled back code
+        success, msg = reload_bot_process_zero_downtime(sub_id)
+        return jsonify({
+            "success": True,
+            "message": f"🔄 Rolled back bot #{sub_id} to commit [{commit_hash}] & hot-reloaded successfully!"
+        })
+    except Exception as e:
+        return jsonify({"error": f"Rollback exception: {str(e)}"}), 500
+
 # Option 3: API Endpoint for Real-Time Process RAM, CPU, PID & Stats Metrics
 @app.route('/api/submissions/<sub_id>/stats')
 def api_submission_stats(sub_id):
@@ -1165,7 +1248,6 @@ def api_submission_stats(sub_id):
             except Exception:
                 pass
 
-    # If status is running in DB but process crashed, attempt auto-restart
     if not target_pid and status == 'running':
         success, _ = start_bot_process(sub_id)
         if success:
@@ -1193,7 +1275,7 @@ def api_submission_stats(sub_id):
     return jsonify({
         "id": sub_id,
         "name": sub_data.get('name'),
-        "status": status if target_pid else ("stopped" if status == "stopped" else "crashed"),
+        "status": status if target_pid else ("paused" if status == "paused" else ("stopped" if status == "stopped" else "crashed")),
         "uptime": uptime_str,
         "pid": target_pid,
         "ram_mb": ram_mb,
@@ -1212,14 +1294,12 @@ def api_submission_stream_logs(sub_id):
     log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
 
     def generate_log_stream():
-        # Yield initial SSE header
         yield "retry: 2000\n\n"
 
         if not os.path.exists(log_file_path):
             yield f"data: {json.dumps({'line': '[BOTHOST STREAM] Waiting for execution log file...', 'type': 'system'})}\n\n"
             time.sleep(1)
 
-        # Read last 30 lines initially
         last_pos = 0
         if os.path.exists(log_file_path):
             with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -1229,7 +1309,6 @@ def api_submission_stream_logs(sub_id):
                     yield f"data: {json.dumps({'line': l})}\n\n"
                 last_pos = f.tell()
 
-        # Tail live log additions in real-time
         while True:
             time.sleep(0.5)
             if os.path.exists(log_file_path):
@@ -1265,7 +1344,6 @@ def api_submission_send_input(sub_id):
             proc.stdin.write((user_input + "\n").encode('utf-8'))
             proc.stdin.flush()
 
-            # Append user input event to log file
             log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
             if os.path.exists(log_file_path):
                 with open(log_file_path, 'a', encoding='utf-8') as lf:
@@ -1429,7 +1507,6 @@ def upload():
 
         clone_url = get_authenticated_clone_url(repo_url)
 
-        # Git clone authenticated repository
         try:
             res = subprocess.run(['git', 'clone', clone_url, sub_dir], capture_output=True, timeout=60)
             if res.returncode != 0:
@@ -1557,6 +1634,10 @@ def review_action(sub_id, action):
                 update_submission_status(sub_id, 'rejected')
                 stop_bot_process(sub_id)
                 msg = f"Submission #{sub_id} marked as REJECTED."
+            elif action == 'pause':
+                update_submission_status(sub_id, 'paused')
+                stop_bot_process(sub_id)
+                msg = f"Bot #{sub_id} paused (0% CPU/RAM)."
             elif action == 'stop':
                 update_submission_status(sub_id, 'stopped')
                 stop_bot_process(sub_id)
@@ -1581,7 +1662,6 @@ def api_submission_env(sub_id):
     if not sub_data:
         return jsonify({"error": "Submission not found"}), 404
 
-    # Check permission
     if sub_data['user'] != session['user'] and not session.get('is_admin'):
         return jsonify({"error": "Forbidden"}), 403
 
@@ -1590,7 +1670,6 @@ def api_submission_env(sub_id):
         new_env = data.get('env_vars', '').strip()
         update_submission_env_vars(sub_id, new_env)
 
-        # Zero-Downtime Hot-Reload if bot is currently running
         restarted = False
         if sub_data.get('status') == 'running':
             success, _ = reload_bot_process_zero_downtime(sub_id)
@@ -1601,7 +1680,6 @@ def api_submission_env(sub_id):
             "message": "⚡ Hot-Reloaded with 0-Downtime!" if restarted else "Environment variables updated successfully!"
         })
 
-    # GET method
     env_vars = sub_data.get('env_vars', '')
     sub_dir = os.path.join(UPLOAD_FOLDER, sub_id)
     env_file = os.path.join(sub_dir, '.env')

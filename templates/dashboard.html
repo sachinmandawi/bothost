@@ -218,7 +218,10 @@
       <label for="repo_url">GITHUB REPOSITORY URL *</label>
       <input type="text" id="repo_url" name="repo_url" placeholder="https://github.com/username/my-telegram-bot" required>
 
-      <label for="env_vars">ENVIRONMENT VARIABLES (.env - Optional)</label>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 4px;">
+        <label for="env_vars" style="margin-bottom: 0;">ENVIRONMENT VARIABLES (.env - Optional)</label>
+        <button type="button" class="btn-ghost" onclick="applySharedEnvPresets('env_vars')" style="padding: 2px 8px; font-size: 0.72rem; color: var(--accent); border-color: var(--accent-dim);">⚡ Apply Shared Preset</button>
+      </div>
       <textarea id="env_vars" name="env_vars" rows="4" style="background: #0d1315; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text); font-family: var(--mono); font-size: 0.85rem; outline: none; resize: vertical;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
       <p class="hint">Auto-clone & 24/7 continuous run on cloud restart!</p>
 
@@ -274,11 +277,16 @@
             <!-- Side-by-Side Status Badges & Indian 12h AM/PM Date directly below Bot Name -->
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px;">
               <span class="tiny">Submitted: {{ sub.formatted_created_at or sub.created_at }}</span>
-              <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
               {% if sub.status == 'running' %}
-                <span class="status status-running" style="font-size: 0.68rem; padding: 2px 8px; border-radius: 12px;">
-                  ⚡ {{ sub.uptime_str if sub.uptime_str else 'Online' }}
+                <span class="status status-running" style="background: rgba(61, 220, 132, 0.15); color: var(--accent); border: 1px solid rgba(61, 220, 132, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 12px;">
+                  🟢 RUNNING ({{ sub.uptime_str if sub.uptime_str else 'Online 0m' }})
                 </span>
+              {% elif sub.status == 'paused' %}
+                <span class="status" style="background: rgba(255, 193, 7, 0.15); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 12px;">
+                  ⏸ PAUSED (0% RAM)
+                </span>
+              {% else %}
+                <span class="status status-{{ sub.status }}">{{ sub.status }}</span>
               {% endif %}
             </div>
           </div>
@@ -289,6 +297,18 @@
             <div id="menu-{{ sub.id }}" class="dots-menu">
               <button class="dots-menu-item" onclick="openSystemStatsModal('{{ sub.id }}', '{{ sub.name }}')">
                 📊 System Stats (RAM/CPU)
+              </button>
+              {% if sub.status == 'running' %}
+              <button class="dots-menu-item" onclick="performUserAction('{{ sub.id }}', 'pause')" style="color: var(--warn);">
+                ⏸ Pause Service (0% RAM)
+              </button>
+              {% elif sub.status == 'paused' or sub.status == 'stopped' %}
+              <button class="dots-menu-item" onclick="performUserAction('{{ sub.id }}', 'resume')" style="color: var(--accent);">
+                ▶️ Resume Service
+              </button>
+              {% endif %}
+              <button class="dots-menu-item" onclick="openGitRollbackModal('{{ sub.id }}', '{{ sub.name }}')">
+                🔄 Deployment History & Rollback
               </button>
               <button class="dots-menu-item" onclick="openEnvSecretsModal('{{ sub.id }}', '{{ sub.name }}')">
                 ⚙️ Secrets (.env)
@@ -435,27 +455,47 @@
   </div>
 </div>
 
+<!-- Modal for Render-Style 1-Click Rollback & Deployment History -->
+<div id="gitRollbackModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 580px;">
+    <div class="modal-header">
+      <h3 id="rollbackModalTitle">🔄 Deployment History & 1-Click Rollback</h3>
+      <button class="modal-close" onclick="closeGitRollbackModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" style="padding: 20px;">
+      <p style="color: var(--text-dim); font-size: 0.82rem; margin-top: 0;">Select any past GitHub commit below to instantly rollback your bot code & hot-reload with zero downtime.</p>
+      
+      <div id="commitsContainer" style="display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; padding-right: 4px;">
+        <div style="text-align: center; color: var(--text-dim); padding: 20px;">Fetching commit history...</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- Modal for Interactive .env Secrets Manager -->
 <div id="envSecretsModal" class="modal-overlay">
   <div class="modal-body" style="max-width: 600px;">
     <div class="modal-header">
-      <h3 id="envSecretsTitle">⚙️ Edit Environment Secrets (.env)</h3>
+      <h3 id="envModalTitle">⚙️ Edit Environment Variables (.env)</h3>
       <button class="modal-close" onclick="closeEnvSecretsModal()">&times;</button>
     </div>
     <div class="modal-content-area">
-      <p style="color: var(--text-dim); font-size: 0.82rem; margin-top: 0;">Add or edit secret variables for this bot (`KEY=VALUE` format). Click Save to automatically update and restart the bot.</p>
-      
-      <div class="stack-form">
-        <label for="modal_env_vars">ENVIRONMENT VARIABLES (.env)</label>
-        <textarea id="modal_env_vars" rows="8" style="background: #070a0b; border: 1px solid var(--border); border-radius: 6px; padding: 12px; color: #3ddc84; font-family: var(--mono); font-size: 0.88rem; width: 100%; outline: none;" placeholder="BOT_TOKEN=123456789:ABCDEF...&#10;API_ID=987654&#10;API_HASH=abcdef..."></textarea>
-        <input type="hidden" id="modal_sub_id">
-        
-        <div style="display: flex; gap: 10px; margin-top: 14px;">
-          <button type="button" class="btn-primary" style="flex: 1; margin-top: 0;" onclick="saveEnvSecrets()">💾 Save & Auto-Restart Bot</button>
-          <button type="button" class="btn-ghost" onclick="closeEnvSecretsModal()">Cancel</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <label for="modal_env_vars" style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 0;">KEY=VALUE (One pair per line)</label>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn-ghost" onclick="applySharedEnvPresets('modal_env_vars')" style="padding: 3px 8px; font-size: 0.75rem; color: var(--accent); border-color: var(--accent-dim);">⚡ Apply Shared Presets</button>
+          <button type="button" class="btn-ghost" onclick="saveSharedEnvPresets('modal_env_vars')" style="padding: 3px 8px; font-size: 0.75rem; color: var(--warn); border-color: rgba(255,193,7,0.3);">📑 Save as Shared Preset</button>
         </div>
-        <p id="envSaveMsg" class="hint" style="text-align: center; margin-top: 8px;"></p>
       </div>
+      
+      <textarea id="modal_env_vars" rows="9" placeholder="API_ID=21948855&#10;API_HASH=10397236f3a19797e9e7b70fa20fc121&#10;BOT_TOKEN=8712647996:..." style="font-family: var(--mono); font-size: 0.85rem; background: #070a0b; color: #3ddc84; border: 1px solid var(--border); border-radius: 6px; padding: 12px; width: 100%; box-sizing: border-box; outline: none;"></textarea>
+      
+      <div style="display: flex; gap: 10px; margin-top: 15px;">
+        <button type="button" class="btn-primary" onclick="saveEnvSecrets()" style="flex: 1; margin-top: 0;">⚡ Save & Hot-Reload (0-Downtime)</button>
+        <button type="button" class="btn-ghost" onclick="closeEnvSecretsModal()">Cancel</button>
+      </div>
+      <p id="envSaveStatus" class="hint" style="text-align: center; margin-top: 8px; font-size: 0.78rem;"></p>
     </div>
   </div>
 </div>
@@ -603,6 +643,127 @@ function closeSystemStatsModal() {
   }
   currentStatsSubId = null;
   document.getElementById('systemStatsModal').classList.remove('active');
+}
+
+/* Feature 1: Render-Style 1-Click Rollback & Deployment History JS */
+let currentRollbackSubId = null;
+
+function openGitRollbackModal(subId, subName) {
+  currentRollbackSubId = subId;
+  const modal = document.getElementById('gitRollbackModal');
+  const title = document.getElementById('rollbackModalTitle');
+  title.innerText = `🔄 Deployment History — ${subName || '#' + subId}`;
+  
+  modal.classList.add('active');
+  fetchGitCommits(subId);
+}
+
+function fetchGitCommits(subId) {
+  const container = document.getElementById('commitsContainer');
+  container.innerHTML = '<div style="text-align: center; color: var(--text-dim); padding: 20px;">Fetching commit history...</div>';
+
+  fetch(`/api/submissions/${subId}/commits`)
+    .then(res => res.json())
+    .then(data => {
+      if (!data.is_git || !data.commits || data.commits.length === 0) {
+        container.innerHTML = '<div style="text-align: center; color: var(--warn); padding: 20px;">No Git deployment history available for this zip/upload bot.</div>';
+        return;
+      }
+
+      let html = '';
+      data.commits.forEach((c, idx) => {
+        const isLatest = (idx === 0);
+        html += `
+          <div style="background: #070a0b; border: 1px solid ${isLatest ? 'var(--accent-dim)' : 'var(--border)'}; border-radius: 8px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+            <div style="flex: 1;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="background: rgba(61,220,132,0.15); color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 0.78rem; padding: 2px 6px; border-radius: 4px;">${c.hash}</span>
+                ${isLatest ? '<span style="background: var(--accent); color: #000; font-size: 0.65rem; font-weight: 800; padding: 1px 6px; border-radius: 10px;">CURRENT HEAD</span>' : ''}
+              </div>
+              <div style="color: var(--text); font-size: 0.88rem; font-weight: 500;">${c.message}</div>
+              <div style="color: var(--text-dim); font-size: 0.75rem; margin-top: 4px;">By <b>${c.author}</b> • ${c.time}</div>
+            </div>
+            ${!isLatest ? `<button type="button" class="btn-ghost" onclick="executeCommitRollback('${subId}', '${c.hash}')" style="padding: 6px 12px; font-size: 0.78rem; color: var(--warn); border-color: rgba(255,193,7,0.4);">⏪ Rollback</button>` : ''}
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    })
+    .catch(err => {
+      container.innerHTML = '<div style="text-align: center; color: var(--danger); padding: 20px;">Error fetching commit history.</div>';
+    });
+}
+
+function executeCommitRollback(subId, commitHash) {
+  if (!confirm(`Are you sure you want to ROLLBACK bot #${subId} to commit [${commitHash}]?`)) return;
+
+  const container = document.getElementById('commitsContainer');
+  container.innerHTML = `<div style="text-align: center; color: var(--accent); padding: 20px;">🔄 Rolling back to commit [${commitHash}] & hot-reloading with zero downtime...</div>`;
+
+  fetch(`/api/submissions/${subId}/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commit_hash: commitHash })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        alert(data.message);
+        closeGitRollbackModal();
+        window.location.reload();
+      } else {
+        alert('Rollback Error: ' + (data.error || 'Failed'));
+        fetchGitCommits(subId);
+      }
+    })
+    .catch(err => alert('Network error performing rollback: ' + err));
+}
+
+function closeGitRollbackModal() {
+  currentRollbackSubId = null;
+  document.getElementById('gitRollbackModal').classList.remove('active');
+}
+
+/* Feature 2: Render Shared Environment Presets JS */
+function applySharedEnvPresets(textareaId) {
+  const targetArea = document.getElementById(textareaId);
+  if (!targetArea) return;
+
+  fetch('/api/user/env_presets')
+    .then(res => res.json())
+    .then(data => {
+      if (data.env_presets) {
+        if (targetArea.value && !confirm('Overwrite existing input with Shared Environment Presets?')) return;
+        targetArea.value = data.env_presets;
+        alert('⚡ Shared Environment Presets applied successfully!');
+      } else {
+        alert('No Shared Presets saved yet. Type credentials and click "📑 Save as Shared Preset" first!');
+      }
+    })
+    .catch(err => alert('Error loading shared presets: ' + err));
+}
+
+function saveSharedEnvPresets(textareaId) {
+  const targetArea = document.getElementById(textareaId);
+  if (!targetArea || !targetArea.value.trim()) {
+    alert('Please type key=value credentials into the box first to save as preset!');
+    return;
+  }
+
+  fetch('/api/user/env_presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ env_presets: targetArea.value.trim() })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        alert('📑 Shared Environment Presets saved! You can now 1-click apply these to any bot.');
+      } else {
+        alert('Error saving presets: ' + (data.error || 'Failed'));
+      }
+    })
+    .catch(err => alert('Network error: ' + err));
 }
 
 function openSessionGenModal() {
