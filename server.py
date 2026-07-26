@@ -28,7 +28,13 @@ except ImportError:
     HAS_TELETHON = False
 
 app = Flask(__name__)
-app.secret_key = 'bothost-secret-key-super-secure'
+app.secret_key = os.getenv('SECRET_KEY', 'bothost-secret-key-super-secure-permanent-2026')
+
+# Feature: 1-Year Permanent Session Persistence (Fixes unexpected auto-logout)
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=365)
+app.config['SESSION_COOKIE_NAME'] = 'bothost_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 LOGS_FOLDER = os.path.join(os.path.dirname(__file__), 'logs')
@@ -1218,6 +1224,7 @@ def login():
 
         if username == 'sachinmandawi' and password == 'sachinmandawi':
             create_user('sachinmandawi', 'sachinmandawi', is_admin=True)
+            session.permanent = True
             session['user'] = 'sachinmandawi'
             session['is_admin'] = True
             flash('Logged in as Admin (sachinmandawi)', 'success')
@@ -1227,6 +1234,7 @@ def login():
 
         if user_data:
             if user_data['password'] == password:
+                session.permanent = True
                 session['user'] = username
                 session['is_admin'] = user_data.get('is_admin', False)
                 flash(f'Successfully logged in as {username}', 'success')
@@ -1265,6 +1273,7 @@ def signup():
         is_admin = (username == 'sachinmandawi' and password == 'sachinmandawi')
         create_user(username, password, is_admin=is_admin)
 
+        session.permanent = True
         session['user'] = username
         session['is_admin'] = is_admin
         flash('Account created successfully! Welcome to BotHost.', 'success')
@@ -1286,6 +1295,7 @@ def dashboard():
         flash('Please log in first', 'error')
         return redirect(url_for('login'))
     
+    session.permanent = True
     user_info = get_user(session['user'])
     all_subs = get_all_submissions()
     user_submissions = [s for s in all_subs if s['user'] == session['user']]
@@ -1445,6 +1455,7 @@ def admin():
         flash('Access Denied. Admin login required.', 'error')
         return redirect(url_for('login'))
 
+    session.permanent = True
     all_submissions = list(get_all_submissions())
     all_submissions.reverse()
     return render_template('admin.html', submissions=all_submissions)
