@@ -12,7 +12,7 @@ import time
 import urllib.request
 import urllib.parse
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 
 try:
     import pymongo
@@ -563,7 +563,7 @@ def find_entry_python_file(sub_dir):
     return None
 
 def start_bot_process(sub_id):
-    """ Installs requirements and starts python script in background """
+    """ Installs requirements and starts python script in background with pipe-enabled stdin for interactive input """
     all_subs = get_all_submissions()
     sub_data = None
     for s in all_subs:
@@ -627,11 +627,13 @@ def start_bot_process(sub_id):
 
         proc_env = os.environ.copy()
         proc_env["PYTHONIOENCODING"] = "utf-8"
+        proc_env["PYTHONUNBUFFERED"] = "1"
 
         proc = subprocess.Popen(
-            [sys.executable, python_entry_file],
+            [sys.executable, "-u", python_entry_file],
             cwd=entry_dir,
             env=proc_env,
+            stdin=subprocess.PIPE,
             stdout=log_out,
             stderr=log_out,
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
@@ -665,12 +667,14 @@ def reload_bot_process_zero_downtime(sub_id):
 
         proc_env = os.environ.copy()
         proc_env["PYTHONIOENCODING"] = "utf-8"
+        proc_env["PYTHONUNBUFFERED"] = "1"
 
         # 1. Launch NEW process in parallel
         new_proc = subprocess.Popen(
-            [sys.executable, python_entry_file],
+            [sys.executable, "-u", python_entry_file],
             cwd=entry_dir,
             env=proc_env,
+            stdin=subprocess.PIPE,
             stdout=log_out,
             stderr=log_out,
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
@@ -924,7 +928,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_logs_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/logs <submission_id>` (e.g. `/logs 9bf1e3e7`)")
 
                             # 4. /restart command
                             elif text.startswith("/restart"):
@@ -933,7 +937,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_restart_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/restart <submission_id>` (e.g. `/restart 9bf1e3e7`)")
 
                             # 5. /stop command
                             elif text.startswith("/stop"):
@@ -942,7 +946,7 @@ def telegram_alert_bot_polling():
                                     sub_id = parts[1].replace("#", "").strip()
                                     handle_telegram_stop_command(chat_id, sub_id)
                                 else:
-                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id="SYSTEM", alert_type="INFO", details="Usage: `/stop <submission_id>` (e.g. `/stop 9bf1e3e7`)")
+                                    send_telegram_alert(chat_id=chat_id, sub_name="System", sub_id=sub_id, alert_type="INFO", details="Usage: `/stop <submission_id>` (e.g. `/stop 9bf1e3e7`)")
 
         except Exception as e:
             time.sleep(5)
@@ -1115,6 +1119,80 @@ def api_user_mass_action(action):
         return jsonify({"success": True, "message": f"⏹ Stopped {count} active bots safely."})
 
     return jsonify({"error": "Invalid mass action"}), 400
+
+# Feature 1: Real-Time Server-Sent Events (SSE) Log Streamer API Endpoint
+@app.route('/api/submissions/<sub_id>/stream_logs')
+def api_submission_stream_logs(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+
+    def generate_log_stream():
+        # Yield initial SSE header
+        yield "retry: 2000\n\n"
+
+        if not os.path.exists(log_file_path):
+            yield f"data: {json.dumps({'line': '[BOTHOST STREAM] Waiting for execution log file...', 'type': 'system'})}\n\n"
+            time.sleep(1)
+
+        # Read last 30 lines initially
+        last_pos = 0
+        if os.path.exists(log_file_path):
+            with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                lines = content.splitlines()[-40:]
+                for l in lines:
+                    yield f"data: {json.dumps({'line': l})}\n\n"
+                last_pos = f.tell()
+
+        # Tail live log additions in real-time
+        while True:
+            time.sleep(0.5)
+            if os.path.exists(log_file_path):
+                with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    f.seek(last_pos)
+                    new_text = f.read()
+                    if new_text:
+                        for line in new_text.splitlines():
+                            if line.strip():
+                                yield f"data: {json.dumps({'line': line})}\n\n"
+                        last_pos = f.tell()
+
+    return Response(generate_log_stream(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+    })
+
+# Feature 1: Interactive Command Input API Endpoint (Send input to bot stdin)
+@app.route('/api/submissions/<sub_id>/send_input', methods=['POST'])
+def api_submission_send_input(sub_id):
+    if 'user' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    user_input = data.get('input', '').strip()
+
+    proc = RUNNING_PROCESSES.get(sub_id)
+    if not proc or proc.poll() is not None:
+        return jsonify({"error": "Bot process is not running."}), 400
+
+    try:
+        if proc.stdin and not proc.stdin.closed:
+            proc.stdin.write((user_input + "\n").encode('utf-8'))
+            proc.stdin.flush()
+
+            # Append user input event to log file
+            log_file_path = os.path.join(LOGS_FOLDER, f"{sub_id}.log")
+            if os.path.exists(log_file_path):
+                with open(log_file_path, 'a', encoding='utf-8') as lf:
+                    lf.write(f"\n[USER INPUT >] {user_input}\n")
+
+            return jsonify({"success": True, "message": f"Input '{user_input}' sent to bot stdin!"})
+        else:
+            return jsonify({"error": "Bot stdin is closed."}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to send input: {str(e)}"}), 500
 
 # Dedicated Keep-Alive / Health Ping endpoint for cron-job.org
 @app.route('/ping')

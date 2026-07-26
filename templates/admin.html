@@ -96,6 +96,96 @@
     background: var(--border);
     margin: 4px 0;
 }
+
+/* Feature 1: Live Terminal Console Styling */
+.terminal-window {
+    background: #06090a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: 'Consolas', 'Fira Code', var(--mono);
+    display: flex;
+    flex-direction: column;
+    height: 420px;
+    overflow: hidden;
+    box-shadow: 0 12px 35px rgba(0,0,0,0.9);
+}
+
+.terminal-bar {
+    background: #0e1619;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.terminal-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(61, 220, 132, 0.12);
+    color: var(--accent);
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.terminal-badge-dot {
+    width: 7px;
+    height: 7px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+}
+
+.terminal-screen {
+    flex: 1;
+    padding: 14px;
+    overflow-y: auto;
+    color: #3ddc84;
+    font-size: 0.84rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.terminal-input-bar {
+    background: #0c1214;
+    border-top: 1px solid var(--border);
+    padding: 8px 12px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.terminal-prompt {
+    color: var(--accent);
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+.terminal-input {
+    flex: 1;
+    background: #050708;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    padding: 6px 10px;
+    outline: none;
+}
+
+.terminal-input:focus {
+    border-color: var(--accent);
+}
+
+@keyframes pulse {
+    0% { opacity: 0.4; }
+    50% { opacity: 1; }
+    100% { opacity: 0.4; }
+}
 </style>
 
 <a href="/dashboard" class="back-link">&larr; Back to Dashboard</a>
@@ -148,8 +238,8 @@
                     <button class="dots-menu-item" onclick="viewSubmissionFiles('{{ sub.id }}')">
                       📄 Inspect Code
                     </button>
-                    <button class="dots-menu-item" onclick="viewBotLogs('{{ sub.id }}')">
-                      📊 View Live Logs
+                    <button class="dots-menu-item" onclick="viewLiveStreamLogs('{{ sub.id }}', '{{ sub.name }}')">
+                      📺 Live Stream Console
                     </button>
 
                     <div class="dots-divider"></div>
@@ -224,8 +314,8 @@
                 <button class="dots-menu-item" onclick="viewSubmissionFiles('{{ sub.id }}')">
                   📄 Inspect Code
                 </button>
-                <button class="dots-menu-item" onclick="viewBotLogs('{{ sub.id }}')">
-                  📊 View Live Logs
+                <button class="dots-menu-item" onclick="viewLiveStreamLogs('{{ sub.id }}', '{{ sub.name }}')">
+                  📺 Live Stream Console
                 </button>
 
                 <div class="dots-divider"></div>
@@ -288,7 +378,7 @@
   </div>
 </div>
 
-<!-- Modal for inspecting code files & logs -->
+<!-- Modal for inspecting code files -->
 <div id="fileModal" class="modal-overlay">
   <div class="modal-body">
     <div class="modal-header">
@@ -297,6 +387,48 @@
     </div>
     <div class="modal-content-area" id="modalContent">
       <p>Loading...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Modal for Live Streaming Log Console & Interactive Command Input -->
+<div id="adminLogModal" class="modal-overlay">
+  <div class="modal-body" style="max-width: 760px;">
+    <div class="modal-header">
+      <h3 id="adminLogTitle">📺 Live Console Stream</h3>
+      <button class="modal-close" onclick="closeAdminLogModal()">&times;</button>
+    </div>
+    <div class="modal-content-area" style="padding: 0;">
+      
+      <div class="terminal-window">
+        <!-- Terminal Top Bar -->
+        <div class="terminal-bar">
+          <div class="terminal-badge">
+            <span class="terminal-badge-dot"></span>
+            <span id="streamStatusText">LIVE STREAMING</span>
+          </div>
+
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-ghost" style="font-size: 0.72rem; padding: 3px 8px;" onclick="toggleAutoScroll()" id="autoScrollBtn">
+              📜 Auto-Scroll: ON
+            </button>
+            <button class="btn-ghost" style="font-size: 0.72rem; padding: 3px 8px;" onclick="clearTerminalScreen()">
+              🧹 Clear
+            </button>
+          </div>
+        </div>
+
+        <!-- Terminal Output Screen -->
+        <div id="terminalScreen" class="terminal-screen">Connecting to real-time log stream...</div>
+
+        <!-- Terminal Interactive Input Bar (Send input to bot stdin) -->
+        <div class="terminal-input-bar">
+          <span class="terminal-prompt">&gt;_</span>
+          <input type="text" id="terminalInput" class="terminal-input" placeholder="Type input/command to bot process (stdin)..." onkeydown="handleTerminalInput(event)">
+          <button class="btn-ghost" style="font-size: 0.76rem; padding: 6px 12px; border-color: var(--accent); color: var(--accent);" onclick="sendTerminalCommand()">Send</button>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -409,23 +541,117 @@ function viewSubmissionFiles(subId) {
     });
 }
 
-function viewBotLogs(subId) {
-  const modal = document.getElementById('fileModal');
-  const title = document.getElementById('modalTitle');
-  const content = document.getElementById('modalContent');
-  
-  title.innerText = `Execution Logs — Bot #${subId}`;
-  content.innerHTML = '<p style="color: var(--text-dim);">Fetching live process logs...</p>';
+// Feature 1: Real-Time SSE Log Streaming & Interactive Terminal Logic for Admin
+let logEventSource = null;
+let currentActiveSubId = null;
+let isAutoScrollEnabled = true;
+
+function viewLiveStreamLogs(subId, subName) {
+  const modal = document.getElementById('adminLogModal');
+  const title = document.getElementById('adminLogTitle');
+  const screen = document.getElementById('terminalScreen');
+  const statusText = document.getElementById('streamStatusText');
+
+  title.innerText = `📺 Live Terminal Stream — ${subName || '#' + subId}`;
+  screen.innerHTML = '<span style="color: var(--text-dim);">Connecting to real-time log stream...</span>\n';
+  statusText.innerText = 'LIVE STREAMING';
+  currentActiveSubId = subId;
+
+  if (logEventSource) {
+    logEventSource.close();
+  }
+
   modal.classList.add('active');
 
-  fetch(`/api/submissions/${subId}/logs`)
-    .then(res => res.json())
-    .then(data => {
-      content.innerHTML = `<pre class="code-block" style="color: #3ddc84;">${data.logs || 'No logs output yet.'}</pre>`;
-    })
-    .catch(err => {
-      content.innerHTML = `<p style="color: var(--danger);">Failed to load logs: ${err}</p>`;
-    });
+  // Open Server-Sent Event (SSE) Stream
+  logEventSource = new EventSource(`/api/submissions/${subId}/stream_logs`);
+
+  logEventSource.onmessage = function(event) {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.line) {
+        appendLogLineToScreen(data.line);
+      }
+    } catch (e) {
+      appendLogLineToScreen(event.data);
+    }
+  };
+
+  logEventSource.onerror = function() {
+    statusText.innerText = 'DISCONNECTED (RETRIEVING)';
+  };
+}
+
+function appendLogLineToScreen(lineText) {
+  const screen = document.getElementById('terminalScreen');
+  
+  // Syntax highlighting for terminal lines
+  let colorStyle = 'color: #3ddc84;'; // Default green
+  if (lineText.includes('ERROR') || lineText.includes('Exception') || lineText.includes('Traceback') || lineText.includes('Failed')) {
+    colorStyle = 'color: #ff5f57; font-weight: bold;'; // Red error
+  } else if (lineText.includes('WARNING') || lineText.includes('WARN') || lineText.includes('FloodWait')) {
+    colorStyle = 'color: #ffd166;'; // Yellow warning
+  } else if (lineText.startsWith('---') || lineText.includes('STARTED') || lineText.includes('HOT-RELOAD')) {
+    colorStyle = 'color: #57c7ff; font-weight: bold;'; // Cyan header
+  } else if (lineText.startsWith('[USER INPUT >]')) {
+    colorStyle = 'color: #b57edc; font-weight: bold;'; // Purple input
+  }
+
+  const lineSpan = document.createElement('div');
+  lineSpan.style.cssText = colorStyle;
+  lineSpan.textContent = lineText;
+
+  screen.appendChild(lineSpan);
+
+  if (isAutoScrollEnabled) {
+    screen.scrollTop = screen.scrollHeight;
+  }
+}
+
+function toggleAutoScroll() {
+  isAutoScrollEnabled = !isAutoScrollEnabled;
+  const btn = document.getElementById('autoScrollBtn');
+  btn.innerText = isAutoScrollEnabled ? '📜 Auto-Scroll: ON' : '📜 Auto-Scroll: OFF';
+}
+
+function clearTerminalScreen() {
+  document.getElementById('terminalScreen').innerHTML = '';
+}
+
+function handleTerminalInput(e) {
+  if (e.key === 'Enter') {
+    sendTerminalCommand();
+  }
+}
+
+function sendTerminalCommand() {
+  const inputEl = document.getElementById('terminalInput');
+  const text = inputEl.value.trim();
+  if (!text || !currentActiveSubId) return;
+
+  fetch(`/api/submissions/${currentActiveSubId}/send_input`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input: text })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      appendLogLineToScreen(`[USER INPUT >] ${text}`);
+      inputEl.value = '';
+    } else {
+      alert(`Error sending input: ${data.error}`);
+    }
+  })
+  .catch(err => alert(`Network error sending input: ${err}`));
+}
+
+function closeAdminLogModal() {
+  if (logEventSource) {
+    logEventSource.close();
+    logEventSource = null;
+  }
+  document.getElementById('adminLogModal').classList.remove('active');
 }
 
 function closeModal() {
