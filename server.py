@@ -666,6 +666,7 @@ def start_bot_process(sub_id):
 
         node_bin = shutil.which('node')
         npm_bin = shutil.which('npm')
+        yarn_bin = shutil.which('yarn')
 
         if not node_bin:
             for possible_node in [r"C:\Program Files\nodejs\node.exe", r"C:\Program Files (x86)\nodejs\node.exe"]:
@@ -673,11 +674,18 @@ def start_bot_process(sub_id):
                     node_bin = possible_node
                     break
 
-        if os.path.exists(pkg_file) and npm_bin:
+        node_modules_dir = os.path.join(os.path.dirname(pkg_file) if pkg_file else entry_dir, 'node_modules')
+        
+        # Install node_modules if missing
+        if os.path.exists(pkg_file) and not os.path.exists(node_modules_dir):
             try:
-                subprocess.run([npm_bin, "install", "--production"], cwd=os.path.dirname(pkg_file), capture_output=True, timeout=30)
+                pkg_dir = os.path.dirname(pkg_file)
+                if yarn_bin:
+                    subprocess.run([yarn_bin, "install", "--production"], cwd=pkg_dir, capture_output=True, timeout=120)
+                elif npm_bin:
+                    subprocess.run([npm_bin, "install", "--production"], cwd=pkg_dir, capture_output=True, timeout=120)
             except Exception as e:
-                print(f"Warning: npm install timeout for {sub_id}: {e}")
+                print(f"Warning: node package install timeout for {sub_id}: {e}")
 
         exec_cmd = [node_bin if node_bin else "node", entry_file]
     else:
