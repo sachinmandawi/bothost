@@ -570,6 +570,30 @@ def save_json_db(data):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
+def flatten_nested_single_directory(sub_dir):
+    """
+    If sub_dir contains only a single inner folder (e.g. uploads/id/repository-master),
+    move all files from subfolder into sub_dir directly!
+    """
+    if not os.path.exists(sub_dir):
+        return
+    try:
+        items = [i for i in os.listdir(sub_dir) if not i.startswith('.')]
+        if len(items) == 1:
+            single_item = os.path.join(sub_dir, items[0])
+            if os.path.isdir(single_item):
+                for inner in os.listdir(single_item):
+                    src = os.path.join(single_item, inner)
+                    dst = os.path.join(sub_dir, inner)
+                    if not os.path.exists(dst):
+                        shutil.move(src, dst)
+                try:
+                    shutil.rmtree(single_item, onerror=remove_readonly)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"Flatten directory warning: {e}")
+
 def find_entry_file(sub_dir):
     """
     Recursively searches for main entry file and detects runtime:
@@ -577,6 +601,8 @@ def find_entry_file(sub_dir):
     """
     if not os.path.exists(sub_dir):
         return None, None
+
+    flatten_nested_single_directory(sub_dir)
 
     # 1. Check for Node.js Project (Levanter, WhatsApp Baileys, Telegraf, etc.)
     for root, _, files in os.walk(sub_dir):
