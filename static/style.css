@@ -128,11 +128,11 @@ body {
   box-shadow: 0 20px 60px rgba(0,0,0,0.4);
 }
 
-.terminal-bar { display: flex; gap: 6px; margin-bottom: 18px; }
-.terminal-bar span { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
-.terminal-bar span:nth-child(1) { background: #e06666; }
-.terminal-bar span:nth-child(2) { background: #d9a441; }
-.terminal-bar span:nth-child(3) { background: var(--accent); }
+.auth-dots { display: flex; gap: 6px; margin-bottom: 18px; }
+.auth-dots span { width: 10px; height: 10px; border-radius: 50%; background: var(--border); display: inline-block; }
+.auth-dots span:nth-child(1) { background: #e06666; }
+.auth-dots span:nth-child(2) { background: #d9a441; }
+.auth-dots span:nth-child(3) { background: var(--accent); }
 
 .terminal-card h1 {
   font-family: var(--mono);
