@@ -663,15 +663,23 @@ def start_bot_process(sub_id):
         pkg_file = os.path.join(entry_dir, 'package.json')
         if not os.path.exists(pkg_file):
             pkg_file = os.path.join(sub_dir, 'package.json')
-        
-        if os.path.exists(pkg_file):
-            try:
-                # Install npm packages for Levanter / Node.js bots
-                subprocess.run(["npm", "install", "--production"], cwd=os.path.dirname(pkg_file), capture_output=True, timeout=120)
-            except Exception as e:
-                print(f"Warning: npm install error for {sub_id}: {e}")
 
-        exec_cmd = ["node", entry_file]
+        node_bin = shutil.which('node')
+        npm_bin = shutil.which('npm')
+
+        if not node_bin:
+            for possible_node in [r"C:\Program Files\nodejs\node.exe", r"C:\Program Files (x86)\nodejs\node.exe"]:
+                if os.path.exists(possible_node):
+                    node_bin = possible_node
+                    break
+
+        if os.path.exists(pkg_file) and npm_bin:
+            try:
+                subprocess.run([npm_bin, "install", "--production"], cwd=os.path.dirname(pkg_file), capture_output=True, timeout=30)
+            except Exception as e:
+                print(f"Warning: npm install timeout for {sub_id}: {e}")
+
+        exec_cmd = [node_bin if node_bin else "node", entry_file]
     else:
         req_file = os.path.join(entry_dir, 'requirements.txt')
         if not os.path.exists(req_file):
