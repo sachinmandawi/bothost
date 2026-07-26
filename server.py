@@ -1147,31 +1147,55 @@ def api_submission_stats(sub_id):
     uptime_str = sub_data.get('uptime_str', 'Offline')
     proc = RUNNING_PROCESSES.get(sub_id)
 
-    pid = None
+    target_pid = None
+    if proc and proc.poll() is None:
+        target_pid = proc.pid
+
+    # OS-Level Process Table Scanner (Fixes Gunicorn multi-worker memory isolation)
+    if not target_pid and HAS_PSUTIL:
+        for p in psutil.process_iter(['pid', 'cmdline']):
+            try:
+                cmdline = " ".join(p.info.get('cmdline') or [])
+                if sub_id in cmdline and ('python' in cmdline.lower() or 'py' in cmdline.lower()):
+                    target_pid = p.info['pid']
+                    if status != 'running':
+                        status = 'running'
+                        update_submission_status(sub_id, 'running')
+                    break
+            except Exception:
+                pass
+
+    # If status is running in DB but process crashed, attempt auto-restart
+    if not target_pid and status == 'running':
+        success, _ = start_bot_process(sub_id)
+        if success:
+            proc_new = RUNNING_PROCESSES.get(sub_id)
+            if proc_new:
+                target_pid = proc_new.pid
+
     ram_mb = 0.0
     ram_percent = 0.0
     cpu_percent = 0.0
     num_threads = 0
 
-    if status == 'running' and proc:
+    if target_pid and HAS_PSUTIL:
         try:
-            pid = proc.pid
-            if HAS_PSUTIL:
-                p = psutil.Process(pid)
+            p = psutil.Process(target_pid)
+            if p.is_running():
                 mem_info = p.memory_info()
                 ram_mb = round(mem_info.rss / (1024 * 1024), 2)
                 ram_percent = round((ram_mb / 512.0) * 100, 1)
                 cpu_percent = round(p.cpu_percent(interval=0.1), 1)
                 num_threads = p.num_threads()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error reading psutil stats for PID {target_pid}: {e}")
 
     return jsonify({
         "id": sub_id,
         "name": sub_data.get('name'),
-        "status": status,
+        "status": status if target_pid else ("stopped" if status == "stopped" else "crashed"),
         "uptime": uptime_str,
-        "pid": pid,
+        "pid": target_pid,
         "ram_mb": ram_mb,
         "ram_max_mb": 512.0,
         "ram_percent": min(ram_percent, 100.0),
