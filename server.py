@@ -659,6 +659,14 @@ def start_bot_process(sub_id):
                 subprocess.run(['git', 'clone', clone_url, sub_dir], capture_output=True, timeout=60)
             except Exception as e:
                 print(f"Error cloning GitHub repo {repo_url}: {e}")
+        elif os.path.exists(os.path.join(sub_dir, '.git')):
+            try:
+                subprocess.run(['git', 'remote', 'set-url', 'origin', clone_url], cwd=sub_dir, capture_output=True, timeout=15)
+                subprocess.run(['git', 'fetch', '--all'], cwd=sub_dir, capture_output=True, timeout=30)
+                subprocess.run(['git', 'reset', '--hard', 'origin/main'], cwd=sub_dir, capture_output=True, timeout=30)
+                subprocess.run(['git', 'clean', '-fd'], cwd=sub_dir, capture_output=True, timeout=30)
+            except Exception as e:
+                print(f"Error pulling latest GitHub repo {repo_url}: {e}")
 
         if sub_data.get('env_vars'):
             env_file = os.path.join(sub_dir, '.env')
